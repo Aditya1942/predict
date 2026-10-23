@@ -1,7 +1,8 @@
 """Team ratings and Projected Goals for a Match, assembled from football-data.org, Understat and ClubElo."""
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict
@@ -71,11 +72,20 @@ class _League:
 
 
 class RatingsService:
-    def __init__(self, fdo: TeamsSource, understat: XgSource, clubelo: EloSource, resolver: TeamResolver) -> None:
+    def __init__(
+        self,
+        fdo: TeamsSource,
+        understat: XgSource,
+        clubelo: EloSource,
+        resolver: TeamResolver,
+        *,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
         self._fdo = fdo
         self._understat = understat
         self._clubelo = clubelo
         self._resolver = resolver
+        self._now = now
 
     def rate_match(self, match: Match) -> RatedMatch:
         if match.competition.is_league:
@@ -84,10 +94,12 @@ class RatingsService:
             away = self._league_team(match.away, match, league)
             base = league.base
         else:
-            elo_rows = self._clubelo.ratings(match.kickoff.date())
+            # ClubElo has no ratings for the future, so a Match still to come uses today's.
+            elo_rows = self._clubelo.ratings(min(match.kickoff.date(), self._now().date()))
+            member_of = self._leagues_of((match.home, match.away))
             leagues: dict[Competition, _League] = {}
-            home = self._cl_team(match.home, match, elo_rows, leagues)
-            away = self._cl_team(match.away, match, elo_rows, leagues)
+            home = self._cl_team(match.home, match, elo_rows, member_of, leagues)
+            away = self._cl_team(match.away, match, elo_rows, member_of, leagues)
             base = CL_BASE
         return RatedMatch(
             home=home, away=away, base=base, projected=projected_goals(home, away, base, neutral=match.neutral)
@@ -111,14 +123,24 @@ class RatingsService:
         return _League(comp, current, last, league_base(current, last), xg)
 
     def _league_team(self, team: Team, match: Match, league: _League) -> TeamRating:
+        if league.current and not any(team.id in (r.home_id, r.away_id) for r in (*league.current, *league.last)):
+            raise SourceError(
+                "understat",
+                f"no Understat matches found for {team.name}; add an alias in aliases.toml [source.understat]",
+            )
         comp_avg = {league.comp: league.mean_goals, Competition.CL: CL_MEAN_GOALS}
         season = season_rating(team.id, league.current, league.last)
         return combine(season, self._form(team, match, comp_avg, league.xg))
 
     def _cl_team(
-        self, team: Team, match: Match, elo_rows: dict[str, ClubEloRow], leagues: dict[Competition, _League]
+        self,
+        team: Team,
+        match: Match,
+        elo_rows: dict[str, ClubEloRow],
+        member_of: dict[int, Competition],
+        leagues: dict[Competition, _League],
     ) -> TeamRating:
-        comp = self._league_of(team)
+        comp = member_of.get(team.id)
         if comp is not None:  # top-5 team: rated within its league, Elo is its league's mean
             if comp not in leagues:
                 leagues[comp] = self._league(comp, match.kickoff)
@@ -128,14 +150,31 @@ class RatingsService:
         form = self._form(team, match, {Competition.CL: CL_MEAN_GOALS}, {})
         return combine(_NEUTRAL, form).model_copy(update={"elo": elo_rows[club].elo})
 
-    def _league_of(self, team: Team) -> Competition | None:
-        """The first top-5 league whose teams include `team`."""
-        return next((c for c in LEAGUES if any(t.id == team.id for t in self._fdo.teams(c))), None)
+    def _leagues_of(self, teams: Sequence[Team]) -> dict[int, Competition]:
+        """For each team, the first top-5 league whose teams include it; teams in none are left out.
+
+        Each league's team list is read at most once, and not at all once every team has been found.
+        """
+        wanted = {t.id for t in teams}
+        found: dict[int, Competition] = {}
+        for comp in LEAGUES:
+            if wanted <= found.keys():
+                break
+            for member in self._fdo.teams(comp):
+                if member.id in wanted:
+                    found.setdefault(member.id, comp)
+        return found
 
     def _form(
-        self, team: Team, match: Match, comp_avg: dict[Competition, float], xg: dict[_XgKey, tuple[float, float]]
+        self,
+        team: Team,
+        match: Match,
+        comp_avg: dict[Competition, float],
+        xg: dict[_XgKey, tuple[float, float]],
+        *,
+        window_days: int = FORM_WINDOW_DAYS,
     ) -> TeamRating | None:
-        date_from = (match.kickoff - timedelta(days=FORM_WINDOW_DAYS)).date()
+        date_from = (match.kickoff - timedelta(days=window_days)).date()
         date_to = (match.kickoff - timedelta(days=1)).date()
         results = self._fdo.team_results(team.id, date_from, date_to)
         recent = [

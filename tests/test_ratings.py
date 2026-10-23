@@ -2,10 +2,11 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from predict.domain import Competition, LeagueBase, MatchRecord, Team
+from predict.domain import Competition, LeagueBase, MatchRecord, Team, TeamRating
 from predict.errors import SourceError
 from predict.model.goals import CL_BASE, projected_goals
 from predict.model.strength import combine, form_rating, league_base, season_rating
+from predict.params import PROMOTED_ATTACK, PROMOTED_CONCEDE
 from predict.ratings import RatedMatch, RatingsService
 from predict.sources.clubelo import ClubElo, ClubEloRow
 from predict.teams import Aliases, TeamResolver
@@ -17,13 +18,15 @@ ARSENAL = make_team(1, "Arsenal FC", "England")
 EVERTON = make_team(2, "Everton FC", "England")
 CHELSEA = make_team(3, "Chelsea FC", "England")
 BURNLEY = make_team(4, "Burnley FC", "England")
+WOLVES = make_team(5, "Wolverhampton Wanderers FC", "England")  # Understat calls them "Wolves"
 REAL = make_team(10, "Real Madrid CF", "Spain")
 BARCA = make_team(11, "FC Barcelona", "Spain")
 BENFICA = make_team(50, "Benfica", "Portugal")
-LEAGUE_TEAMS = {PL: [ARSENAL, EVERTON, CHELSEA, BURNLEY], PD: [REAL, BARCA]}
+LEAGUE_TEAMS = {PL: [ARSENAL, EVERTON, CHELSEA, BURNLEY, WOLVES], PD: [REAL, BARCA]}
 IDS = {"Arsenal": 1, "Everton": 2, "Chelsea": 3, "Burnley": 4, "Real Madrid": 10, "Barcelona": 11}
 
 KICKOFF = datetime(2026, 10, 24, 15, 0, tzinfo=UTC)
+NOW = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)  # two days before KICKOFF
 CL_MEAN = 1.45
 
 
@@ -94,8 +97,10 @@ class FakeFdo:
     def __init__(self, results: dict[int, list[MatchRecord]] | None = None) -> None:
         self._results = results or {}
         self.result_calls: list[tuple[int, date, date]] = []
+        self.team_calls: list[Competition] = []
 
     def teams(self, comp: Competition) -> list[Team]:
+        self.team_calls.append(comp)
         return LEAGUE_TEAMS.get(comp, [])
 
     def team_results(self, team_id: int, date_from: date, date_to: date) -> list[MatchRecord]:
@@ -135,9 +140,11 @@ ELO_ROWS = [
 ]
 
 
-def service(fdo=None, understat=None, clubelo=None) -> RatingsService:
+def service(fdo=None, understat=None, clubelo=None, now=NOW) -> RatingsService:
     resolver = TeamResolver([*LEAGUE_TEAMS[PL], *LEAGUE_TEAMS[PD], BENFICA], Aliases())
-    return RatingsService(fdo or FakeFdo(), understat or FakeUnderstat(), clubelo or FakeClubElo(ELO_ROWS), resolver)
+    return RatingsService(
+        fdo or FakeFdo(), understat or FakeUnderstat(), clubelo or FakeClubElo(ELO_ROWS), resolver, now=lambda: now
+    )
 
 
 def with_ids(records: list[MatchRecord]) -> list[MatchRecord]:
@@ -254,6 +261,36 @@ def test_ratings_follow_the_strength_model_with_xg_filled_into_form():
     assert rated == RatedMatch(home=home, away=away, base=base, projected=projected_goals(home, away, base))
 
 
+def test_team_without_mapped_understat_matches_is_an_error_when_the_season_has_started():
+    # "Wolves" does not fuzzy-match "Wolverhampton Wanderers FC" and has no alias, so its records keep id None
+    current = [*CURRENT, urec("Wolves", "Arsenal", 0, 2, 0.4, 2.1, day(50))]
+    previous = [*LAST, urec("Wolves", "Everton", 1, 1, 1.0, 1.0, last(60))]
+    rated = service(understat=FakeUnderstat(current=current, previous=previous))
+    message = "understat: no Understat matches found for Wolverhampton Wanderers FC"
+    with pytest.raises(SourceError, match=message) as exc:
+        rated.rate_match(league_match(away=WOLVES))
+    assert "[source.understat]" in str(exc.value)
+    assert exc.value.source == "understat"
+
+
+def test_promoted_team_with_current_matches_only_is_not_an_error():
+    # Burnley has current-season records but none from last season
+    assert all("Burnley" not in (r.home_name, r.away_name) for r in LAST)
+    rated = service().rate_match(league_match(home=BURNLEY, away=EVERTON))
+    assert rated.projected.home > 0 and rated.home.attack < 1 < rated.home.concede
+
+
+def test_team_without_any_records_gets_promoted_defaults_before_the_season_starts():
+    rated = service(understat=FakeUnderstat(current=[])).rate_match(league_match(away=WOLVES))
+    assert rated.away == TeamRating(attack=PROMOTED_ATTACK, concede=PROMOTED_CONCEDE)
+
+
+def test_form_window_is_a_keyword_default():
+    fdo = FakeFdo()
+    service(fdo=fdo)._form(ARSENAL, league_match(), {PL: 1.2}, {}, window_days=10)
+    assert fdo.result_calls == [(1, date(2026, 10, 14), date(2026, 10, 23))]
+
+
 # --- Champions League Matches ---
 
 
@@ -264,8 +301,23 @@ def test_cl_top_five_team_gets_its_league_mean_elo_and_the_other_team_its_own():
     assert rated.away.elo == pytest.approx(1800.0)  # Benfica's own rating
     assert rated.base == CL_BASE
     assert sorted(understat.calls) == [(PL, 2025), (PL, 2026)]  # Arsenal's league only
-    assert clubelo.calls == [KICKOFF.date()]
+    assert clubelo.calls == [NOW.date()]  # the kickoff is in the future: ClubElo is asked for today
     assert rated.projected.home > rated.projected.away > 0  # Arsenal: stronger Elo and stronger league ratings
+
+
+def test_cl_asks_clubelo_for_the_kickoff_date_once_it_is_in_the_past():
+    clubelo = FakeClubElo(ELO_ROWS)
+    service(clubelo=clubelo, now=KICKOFF + timedelta(days=2)).rate_match(cl_match())
+    assert clubelo.calls == [KICKOFF.date()]
+
+
+def test_cl_reads_each_leagues_teams_at_most_once_per_match():
+    fdo = FakeFdo()
+    service(fdo=fdo).rate_match(cl_match(home=ARSENAL, away=BENFICA))  # Benfica is in no league: all five are read
+    assert fdo.team_calls == [Competition.PL, Competition.PD, Competition.BL1, Competition.SA, Competition.FL1]
+    fdo = FakeFdo()
+    service(fdo=fdo).rate_match(cl_match(home=ARSENAL, away=REAL))  # both found after PD: nothing more is read
+    assert fdo.team_calls == [Competition.PL, Competition.PD]
 
 
 def test_cl_team_outside_the_top_five_starts_from_neutral_ratings():
