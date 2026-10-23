@@ -64,10 +64,12 @@ def test_independent_poisson_when_rho_zero():
     assert m.sum() == pytest.approx(1.0)
     assert m[0, 0] == pytest.approx(math.exp(-2), abs=1e-6)
 
+
 def test_negative_rho_moves_probability_into_low_draws():
     dc, ind = scoreline_matrix(1.4, 1.1, rho=-0.05), scoreline_matrix(1.4, 1.1, rho=0.0)
     assert dc[0, 0] > ind[0, 0] and dc[1, 1] > ind[1, 1]
     assert dc[1, 0] < ind[1, 0] and dc[0, 1] < ind[0, 1]
+
 
 # tests/model/test_markets.py
 def test_markets_from_known_projected_goals():
@@ -79,13 +81,16 @@ def test_markets_from_known_projected_goals():
     assert p["team:home:0.5"]["over"] == pytest.approx(0.7769, abs=1e-4)
     assert p["team:home:1.5"]["over"] == pytest.approx(0.4422, abs=1e-4)
 
+
 def test_equal_teams_give_equal_win_chances():
     p = market_probabilities(scoreline_matrix(1.3, 1.3))
     assert p["result"]["home"] == pytest.approx(p["result"]["away"])
 
+
 def test_pick():
     assert pick({"home": 0.4, "draw": 0.3, "away": 0.3}) == "home"
     assert pick({"over": 0.45, "under": 0.55}) == "under"
+
 
 # tests/test_domain.py
 def test_season_of():
@@ -117,18 +122,28 @@ def test_season_of():
 
 ```python
 def test_league_match():
-    g = projected_goals(TeamRating(attack=1.2, concede=0.8), TeamRating(attack=0.9, concede=1.1),
-                        LeagueBase(home_goals=1.5, away_goals=1.2))
+    g = projected_goals(
+        TeamRating(attack=1.2, concede=0.8),
+        TeamRating(attack=0.9, concede=1.1),
+        LeagueBase(home_goals=1.5, away_goals=1.2),
+    )
     assert (g.home, g.away) == (pytest.approx(1.98), pytest.approx(0.864))
 
+
 def test_neutral_venue_uses_mean_base():
-    g = projected_goals(TeamRating(attack=1, concede=1), TeamRating(attack=1, concede=1),
-                        LeagueBase(home_goals=1.5, away_goals=1.2), neutral=True)
+    g = projected_goals(
+        TeamRating(attack=1, concede=1),
+        TeamRating(attack=1, concede=1),
+        LeagueBase(home_goals=1.5, away_goals=1.2),
+        neutral=True,
+    )
     assert g.home == pytest.approx(1.35) and g.away == pytest.approx(1.35)
+
 
 def test_cross_league_elo_factor():
     g = projected_goals(TeamRating(attack=1, concede=1, elo=1750), TeamRating(attack=1, concede=1, elo=1600), CL_BASE)
     assert g.home == pytest.approx(1.9300, abs=1e-4) and g.away == pytest.approx(1.0777, abs=1e-4)
+
 
 def test_no_elo_factor_when_either_elo_missing():
     g = projected_goals(TeamRating(attack=1, concede=1, elo=1750), TeamRating(attack=1, concede=1), CL_BASE)
@@ -163,32 +178,40 @@ def test_no_elo_factor_when_either_elo_missing():
 ```python
 CUR = [rec(1, 2, 2, 1, 2.0, 1.0, day=1), rec(2, 1, 1, 2, 1.0, 2.0, day=8)]
 
+
 def test_performance():
     assert performance(2, 1.0) == pytest.approx(1.3) and performance(2, None) == 2.0
 
+
 def test_season_weight():
     assert (season_weight(0), season_weight(9), season_weight(25)) == (0.0, 0.5, 1.0)
+
 
 def test_promoted_team_blends_toward_promoted_defaults():
     r = season_rating(1, CUR, last=[])
     assert r.attack == pytest.approx(0.9037, abs=1e-4) and r.concede == pytest.approx(1.0963, abs=1e-4)
 
+
 def test_same_numbers_both_seasons_ignore_weight():
     assert season_rating(1, CUR, last=CUR).attack == pytest.approx(4 / 3)
+
 
 def test_form_weights_recent_matches_more():
     recent = [rec(1, 2, 2, 1, 2.0, 1.0, day=1), rec(2, 1, 1, 1, 1.0, 1.0, day=8)]  # newest is the weaker game
     f = form_rating(1, recent, {Competition.PL: 1.5})
     assert f.attack == pytest.approx(0.9697, abs=1e-4)
 
+
 def test_form_uses_goals_when_no_xg():
     f = form_rating(1, [rec(1, 9, 3, 0, day=1, competition=Competition.CL)], {Competition.CL: 1.5})
     assert f.attack == pytest.approx(2.0)
+
 
 def test_combine_geometric():
     c = combine(TeamRating(attack=1.1, concede=1.0), TeamRating(attack=1.4, concede=1.0))
     assert c.attack == pytest.approx(1.18253, abs=1e-5)
     assert combine(TeamRating(attack=1.1, concede=1.0), None).attack == 1.1
+
 
 def test_league_base_blends_home_away_goals():
     b = league_base(CUR, last=CUR)
@@ -293,26 +316,49 @@ def test_league_base_blends_home_away_goals():
 - [ ] **Step 2: Write failing tests** with a fixed team list (Arsenal FC, Chelsea FC, Manchester City FC, Manchester United FC, Brighton & Hove Albion FC, Liverpool FC, FC Barcelona, Real Madrid CF, Real Betis Balompié, Real Sociedad de Fútbol, Club Atlético de Madrid, FC Bayern München, Bayer 04 Leverkusen, Paris Saint-Germain FC, AS Monaco FC, AS Roma, FC Internazionale Milano, AC Milan, Como 1907):
 
 ```python
-@pytest.mark.parametrize("q,expected", [("chelsia", "Chelsea FC"), ("bayer leverkusin", "Bayer 04 Leverkusen"),
-    ("barca", "FC Barcelona"), ("psg", "Paris Saint-Germain FC"), ("inter", "FC Internazionale Milano"),
-    ("man city", "Manchester City FC")])
-def test_resolves(q, expected): assert resolver.resolve_query(q).name == expected
+@pytest.mark.parametrize(
+    "q,expected",
+    [
+        ("chelsia", "Chelsea FC"),
+        ("bayer leverkusin", "Bayer 04 Leverkusen"),
+        ("barca", "FC Barcelona"),
+        ("psg", "Paris Saint-Germain FC"),
+        ("inter", "FC Internazionale Milano"),
+        ("man city", "Manchester City FC"),
+    ],
+)
+def test_resolves(q, expected):
+    assert resolver.resolve_query(q).name == expected
+
 
 def test_real_is_ambiguous():
-    with pytest.raises(AmbiguousTeam) as e: resolver.resolve_query("real")
+    with pytest.raises(AmbiguousTeam) as e:
+        resolver.resolve_query("real")
     assert {t.name for t in e.value.candidates} == {"Real Madrid CF", "Real Betis Balompié", "Real Sociedad de Fútbol"}
 
-def test_milan_is_ambiguous(): ...  # {"AC Milan", "FC Internazionale Milano"}
-def test_unknown(): ...             # "xyzzy" raises TeamNotFound
 
-@pytest.mark.parametrize("q,expected", [("Arsenal v Chelsea", ("Arsenal", "Chelsea")),
-    ("arsenal vs chelsea", ("arsenal", "chelsea")), ("Arsenal - Chelsea", ("Arsenal", "Chelsea")),
-    ("Brighton & Hove Albion v Real Betis", ("Brighton & Hove Albion", "Real Betis")), ("arsenal", ("arsenal", None))])
-def test_parse_query(q, expected): assert parse_query(q) == expected
+def test_milan_is_ambiguous(): ...  # {"AC Milan", "FC Internazionale Milano"}
+def test_unknown(): ...  # "xyzzy" raises TeamNotFound
+
+
+@pytest.mark.parametrize(
+    "q,expected",
+    [
+        ("Arsenal v Chelsea", ("Arsenal", "Chelsea")),
+        ("arsenal vs chelsea", ("arsenal", "chelsea")),
+        ("Arsenal - Chelsea", ("Arsenal", "Chelsea")),
+        ("Brighton & Hove Albion v Real Betis", ("Brighton & Hove Albion", "Real Betis")),
+        ("arsenal", ("arsenal", None)),
+    ],
+)
+def test_parse_query(q, expected):
+    assert parse_query(q) == expected
+
 
 def test_source_names_unmatched_is_none():
     m = resolver.map_source_names("understat", ["Manchester City", "Arsenal", "Ipswich"])
     assert m["Ipswich"] is None and m["Arsenal"] == ARSENAL_ID
+
 
 def test_two_source_names_for_one_team_raises(): ...  # ["Manchester City", "Man City FC"] → SourceError naming both
 ```
@@ -481,10 +527,17 @@ def test_two_source_names_for_one_team_raises(): ...  # ["Manchester City", "Man
 - [ ] **Step 1: Write failing tests**:
 
 ```python
-def test_brier(): assert brier({"home": .5, "draw": .3, "away": .2}, "home") == pytest.approx(0.38)
+def test_brier():
+    assert brier({"home": 0.5, "draw": 0.3, "away": 0.2}, "home") == pytest.approx(0.38)
+
+
 def test_devig():
     p = devig({"home": 2.0, "draw": 3.5, "away": 4.0})
-    assert (p["home"], p["draw"], p["away"]) == (pytest.approx(0.48276, abs=1e-5), pytest.approx(0.27586, abs=1e-5), pytest.approx(0.24138, abs=1e-5))
+    assert (p["home"], p["draw"], p["away"]) == (
+        pytest.approx(0.48276, abs=1e-5),
+        pytest.approx(0.27586, abs=1e-5),
+        pytest.approx(0.24138, abs=1e-5),
+    )
 ```
 
   Also test that changing the result of a Match on date d doesn't change the backtest prediction for another Match on date d, and that a CSV with the listed header parses.
@@ -646,19 +699,24 @@ def test_devig():
 ```python
 def test_expected_multiplier():
     assert attack_multiplier("absence", [0, 0, 1, 0]) == pytest.approx(0.92)
-    assert attack_multiplier("absence", [.5, .5, 0, 0]) == pytest.approx(0.985)
+    assert attack_multiplier("absence", [0.5, 0.5, 0, 0]) == pytest.approx(0.985)
     assert attack_multiplier("return", [0, 0, 0, 1]) == pytest.approx(1.10)
+
 
 def test_doubtful_scaled_by_start_chance():
     assert scale_by_start(0.85, p_start=0.6) == pytest.approx(0.94)
+
 
 def test_cap():
     imp = [FactorImpact(side="home", factor=F, attack_mult=0.85, concede_mult=1.0, p_start=None)] * 3
     assert apply_impacts(ProjectedGoals(home=2.0, away=1.0), imp).home == pytest.approx(1.5)
 
+
 def test_attack_and_opponent_defence_combine():
-    imp = [FactorImpact(side="home", factor=F, attack_mult=0.92, concede_mult=1.0, p_start=None),
-           FactorImpact(side="away", factor=F, attack_mult=1.0, concede_mult=1.08, p_start=None)]
+    imp = [
+        FactorImpact(side="home", factor=F, attack_mult=0.92, concede_mult=1.0, p_start=None),
+        FactorImpact(side="away", factor=F, attack_mult=1.0, concede_mult=1.08, p_start=None),
+    ]
     assert apply_impacts(ProjectedGoals(home=2.0, away=1.0), imp).home == pytest.approx(2.0 * 0.9936)
 ```
 
@@ -759,8 +817,14 @@ def test_attack_and_opponent_defence_combine():
 ```python
 def test_outcomes():
     r = Result(home_goals=2, away_goals=1)
-    assert [outcome(m, r) for m in ("result", "btts", "total:2.5", "total:3.5", "team:away:0.5", "team:away:1.5")] == \
-           ["home", "yes", "over", "under", "over", "under"]
+    assert [outcome(m, r) for m in ("result", "btts", "total:2.5", "total:3.5", "team:away:0.5", "team:away:1.5")] == [
+        "home",
+        "yes",
+        "over",
+        "under",
+        "over",
+        "under",
+    ]
 ```
 
   Also test:

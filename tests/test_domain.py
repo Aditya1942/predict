@@ -14,7 +14,12 @@ def test_season_of():
 
 def test_competition_properties():
     assert [c.display for c in Competition] == [
-        "Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1", "Champions League",
+        "Premier League",
+        "La Liga",
+        "Bundesliga",
+        "Serie A",
+        "Ligue 1",
+        "Champions League",
     ]
     assert [c.is_league for c in Competition] == [True] * 5 + [False]
     assert [c.understat_league for c in Competition] == ["EPL", "La_liga", "Bundesliga", "Serie_A", "Ligue_1", None]
@@ -35,6 +40,4 @@ def test_kickoffs_must_be_timezone_aware():
     with pytest.raises(ValidationError):
         Match(id=1, competition=Competition.PL, home=make_team(1, "A"), away=make_team(2, "B"), kickoff=naive)
     with pytest.raises(ValidationError):
-        MatchRecord(
-            kickoff=naive, competition=Competition.PL, home_name="A", away_name="B", home_goals=1, away_goals=0
-        )
+        MatchRecord(kickoff=naive, competition=Competition.PL, home_name="A", away_name="B", home_goals=1, away_goals=0)

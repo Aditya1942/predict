@@ -190,8 +190,7 @@ def test_question_text_and_levels():
     score_dossier(dossier, MATCH, jev)
     _, _, scores = jev.calls[0]
     question = (
-        "How much does this news change how many chances Arsenal FC {} in this Match?"
-        " News: Saka is out for a month"
+        "How much does this news change how many chances Arsenal FC {} in this Match? News: Saka is out for a month"
     )
     assert scores["home0_attack"] == (question.format("creates"), list(LEVELS))
     assert scores["home0_defence"] == (question.format("concedes"), list(LEVELS))

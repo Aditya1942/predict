@@ -86,9 +86,7 @@ class FakeFdo:
     def team_upcoming(self, team_id: int, date_from: date, date_to: date) -> list[Match]:
         self.upcoming_calls.append((team_id, date_from, date_to))
         found = [
-            m
-            for m in self.matches
-            if team_id in (m.home.id, m.away.id) and date_from <= m.kickoff.date() <= date_to
+            m for m in self.matches if team_id in (m.home.id, m.away.id) and date_from <= m.kickoff.date() <= date_to
         ]
         return sorted(found, key=lambda m: m.kickoff)
 

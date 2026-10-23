@@ -345,9 +345,18 @@ def test_report_from_hand_worked_odds():
         odds_under25=2.0,
     )
     second = first.model_copy(
-        update={"kickoff": START + timedelta(days=14), "home_name": "Bravo", "away_name": "Charlie",
-                "home_goals": 1, "away_goals": 1, "odds_home": 5.0, "odds_draw": 4.0, "odds_away": 1.6,
-                "odds_over25": 2.2, "odds_under25": 1.65}
+        update={
+            "kickoff": START + timedelta(days=14),
+            "home_name": "Bravo",
+            "away_name": "Charlie",
+            "home_goals": 1,
+            "away_goals": 1,
+            "odds_home": 5.0,
+            "odds_draw": 4.0,
+            "odds_away": 1.6,
+            "odds_over25": 2.2,
+            "odds_under25": 1.65,
+        }
     )
     source, _ = league()
     report = run_backtest(PL, 2025, source, FakeCouk([first, second]), NO_ALIASES)

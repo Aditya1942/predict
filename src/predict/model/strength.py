@@ -71,9 +71,9 @@ def _season_ratio(team_id: int, records: list[MatchRecord]) -> tuple[float, floa
     mine = [r for r in records if _involves(r, team_id)]
     if not mine:
         return None
-    league_mean = sum(
-        performance(r.home_goals, r.home_xg) + performance(r.away_goals, r.away_xg) for r in records
-    ) / (2 * len(records))
+    league_mean = sum(performance(r.home_goals, r.home_xg) + performance(r.away_goals, r.away_xg) for r in records) / (
+        2 * len(records)
+    )
     if league_mean <= 0:
         return 1.0, 1.0, len(mine)
     pairs = [_performances(r, team_id) for r in mine]

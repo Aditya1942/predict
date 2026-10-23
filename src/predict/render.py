@@ -26,7 +26,7 @@ _LOG_LABEL_WIDTH = 17
 
 
 def format_kickoff(kickoff: datetime, tz: tzinfo | None) -> str:
-    """"Sun 25 Oct, 22:00 IST": the kickoff in local time.
+    """ "Sun 25 Oct, 22:00 IST": the kickoff in local time.
 
     `tz=None` means the system zone, applying its daylight-saving rules to this kickoff's own date.
     """
