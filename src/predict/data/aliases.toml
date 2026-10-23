@@ -1,0 +1,99 @@
+# Team aliases. Keys are matched case-, accent- and punctuation-insensitively.
+#
+# [user]: what people type -> canonical football-data.org team name(s).
+#   One entry resolves directly; several make the alias ambiguous and the CLI asks which one.
+# [source.<name>]: a data source's own team name -> canonical football-data.org team name.
+#   Only for names the fuzzy matcher cannot get right on its own.
+#   [source.football_data_couk] is different: it maps football-data.co.uk names to Understat names
+#   (backtest only).
+#
+# Canonical names are written from memory of the football-data.org naming convention and have not
+# been checked against a live dump of all 6 Competitions yet.
+
+[user]
+barca = ["FC Barcelona"]
+inter = ["FC Internazionale Milano"]
+"inter milan" = ["FC Internazionale Milano"]
+psg = ["Paris Saint-Germain FC"]
+"man city" = ["Manchester City FC"]
+"man utd" = ["Manchester United FC"]
+"man united" = ["Manchester United FC"]
+spurs = ["Tottenham Hotspur FC"]
+atleti = ["Club Atlético de Madrid"]
+atletico = ["Club Atlético de Madrid"]
+bayern = ["FC Bayern München"]
+leverkusen = ["Bayer 04 Leverkusen"]
+juve = ["Juventus FC"]
+real = ["Real Madrid CF", "Real Betis Balompié", "Real Sociedad de Fútbol"]
+milan = ["AC Milan", "FC Internazionale Milano"]
+
+[source.understat]
+"Bayern Munich" = "FC Bayern München"
+"Borussia M.Gladbach" = "Borussia Mönchengladbach"
+"RasenBallsport Leipzig" = "RB Leipzig"
+"FC Cologne" = "1. FC Köln"
+"Inter" = "FC Internazionale Milano"
+"Brighton" = "Brighton & Hove Albion FC"
+"Rayo Vallecano" = "Rayo Vallecano de Madrid"
+"Espanyol" = "RCD Espanyol de Barcelona"
+"Alaves" = "Deportivo Alavés"
+
+[source.clubelo]
+"Man City" = "Manchester City FC"
+"Man United" = "Manchester United FC"
+"Inter" = "FC Internazionale Milano"
+"Milan" = "AC Milan"
+"Bayern" = "FC Bayern München"
+"Leverkusen" = "Bayer 04 Leverkusen"
+"Atletico" = "Club Atlético de Madrid"
+"Paris SG" = "Paris Saint-Germain FC"
+"Sociedad" = "Real Sociedad de Fútbol"
+"Betis" = "Real Betis Balompié"
+"Gladbach" = "Borussia Mönchengladbach"
+"Leipzig" = "RB Leipzig"
+"Koeln" = "1. FC Köln"
+"Forest" = "Nottingham Forest FC"
+"Wolves" = "Wolverhampton Wanderers FC"
+"Tottenham" = "Tottenham Hotspur FC"
+"Newcastle" = "Newcastle United FC"
+"Brighton" = "Brighton & Hove Albion FC"
+
+[source.odds_api]
+"Inter Milan" = "FC Internazionale Milano"
+"Bayern Munich" = "FC Bayern München"
+"Paris Saint Germain" = "Paris Saint-Germain FC"
+"Brighton and Hove Albion" = "Brighton & Hove Albion FC"
+"Atlético Madrid" = "Club Atlético de Madrid"
+"Borussia Monchengladbach" = "Borussia Mönchengladbach"
+"Wolverhampton Wanderers" = "Wolverhampton Wanderers FC"
+
+[source.fpl]
+"Man City" = "Manchester City FC"
+"Man Utd" = "Manchester United FC"
+"Spurs" = "Tottenham Hotspur FC"
+"Nott'm Forest" = "Nottingham Forest FC"
+"Wolves" = "Wolverhampton Wanderers FC"
+"Newcastle" = "Newcastle United FC"
+"Brighton" = "Brighton & Hove Albion FC"
+
+[source.football_data_couk]
+"Man United" = "Manchester United"
+"Man City" = "Manchester City"
+"Nott'm Forest" = "Nottingham Forest"
+"Newcastle" = "Newcastle United"
+"Wolves" = "Wolverhampton Wanderers"
+"Ath Madrid" = "Atletico Madrid"
+"Ath Bilbao" = "Athletic Club"
+"Betis" = "Real Betis"
+"Sociedad" = "Real Sociedad"
+"Espanol" = "Espanyol"
+"Vallecano" = "Rayo Vallecano"
+"Celta" = "Celta Vigo"
+"Dortmund" = "Borussia Dortmund"
+"M'gladbach" = "Borussia M.Gladbach"
+"Leverkusen" = "Bayer Leverkusen"
+"Ein Frankfurt" = "Eintracht Frankfurt"
+"FC Koln" = "FC Cologne"
+"Paris SG" = "Paris Saint Germain"
+"St Etienne" = "Saint-Etienne"
+"Milan" = "AC Milan"
