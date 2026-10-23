@@ -3,8 +3,9 @@
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
-from predict.domain import MatchDossier, Prediction
+from predict.domain import MatchDossier, Prediction, Result
 
 _SCHEMA = (
     """
@@ -37,6 +38,16 @@ _SCHEMA = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS dossiers_match ON dossiers (match_id)",
+    # A Match is settled once: `finished` with its 90-minute score, or `void` with none.
+    """
+    CREATE TABLE IF NOT EXISTS results (
+        match_id INTEGER PRIMARY KEY,
+        status TEXT NOT NULL,
+        home_goals INTEGER,
+        away_goals INTEGER,
+        settled_at TEXT NOT NULL
+    )
+    """,
 )
 
 
@@ -124,6 +135,42 @@ class Store:
             "SELECT body FROM dossiers WHERE match_id = ? ORDER BY id DESC LIMIT 1", (match_id,)
         ).fetchone()
         return None if row is None else MatchDossier.model_validate_json(row[0])
+
+    def save_result(
+        self, match_id: int, status: Literal["finished", "void"], result: Result | None, at: datetime
+    ) -> None:
+        """Settle the Match: a finished one needs its Result and a void one has none. Replaces an earlier settlement."""
+        if (status == "finished") != (result is not None):
+            raise ValueError(f"a finished Match has a Result and a void one has none (got {status!r}, {result})")
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO results (match_id, status, home_goals, away_goals, settled_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (
+                    match_id,
+                    status,
+                    None if result is None else result.home_goals,
+                    None if result is None else result.away_goals,
+                    _utc(at),
+                ),
+            )
+
+    def results(self) -> dict[int, tuple[str, Result | None]]:
+        """Every settled Match by id: its status and, when finished, its Result."""
+        rows = self._conn.execute("SELECT match_id, status, home_goals, away_goals FROM results").fetchall()
+        return {
+            match_id: (status, None if home is None else Result(home_goals=home, away_goals=away))
+            for match_id, status, home, away in rows
+        }
+
+    def unsettled_match_ids(self, kicked_off_before: datetime) -> list[int]:
+        """Ids of predicted Matches with no result whose latest kickoff is before the given time, in id order."""
+        rows = self._conn.execute(
+            "SELECT match_id FROM predictions WHERE match_id NOT IN (SELECT match_id FROM results)"
+            " GROUP BY match_id HAVING MAX(kickoff) < ? ORDER BY match_id",
+            (_utc(kicked_off_before),),
+        )
+        return [row[0] for row in rows.fetchall()]
 
 
 def _columns(p: Prediction) -> tuple[int, str | None, str | None, str | None, str]:

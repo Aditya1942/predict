@@ -1,4 +1,4 @@
-"""Command line: `predict <query...> [--share] [--fresh] [--model ID]`."""
+"""Command line: `predict <query...> [--share] [--fresh] [--model ID]` and `predict log`."""
 
 import argparse
 import os
@@ -10,8 +10,9 @@ from pydantic import ValidationError
 from predict.config import Settings
 from predict.domain import Team
 from predict.errors import MatchNotFound, PredictionLocked, SourceError, TeamNotFound
+from predict.log import settle_pending, summarize
 from predict.news.research import api_key_warning
-from predict.render import copy_to_clipboard, full_view, share_text
+from predict.render import copy_to_clipboard, full_view, log_view, share_text
 from predict.wiring import Services, build
 
 
@@ -51,6 +52,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="predict",
         description='Probabilities for the next Match: predict "Arsenal v Chelsea", or one team: predict arsenal.',
+        epilog="predict log: show the Prediction Log (Hit Rates, Hot Takes, recent Results).",
     )
     parser.add_argument("query", nargs="+", help='a team, or two teams: "Arsenal v Chelsea" (also vs, -)')
     parser.add_argument("--share", action="store_true", help="also print the group-chat version and mark it shared")
@@ -67,16 +69,19 @@ def _missing_token(exc: ValidationError) -> str:
 
 def main(argv: list[str] | None = None, services: Services | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
-    if args[:1] == ["log"]:  # reserved for the Prediction Log
-        print("predict log is not available yet.", file=sys.stderr)
-        return 1
-    try:
-        options = _parser().parse_intermixed_args(args)
-    except SystemExit as done:  # argparse: 0 after --help, 2 for bad usage
-        return done.code if isinstance(done.code, int) else 1
-    warning = api_key_warning(os.environ)
-    if warning:
-        print(warning, file=sys.stderr)
+    if args[:1] == ["log"]:
+        if len(args) > 1:
+            print("usage: predict log (it takes no arguments)", file=sys.stderr)
+            return 2
+        options = None
+    else:
+        try:
+            options = _parser().parse_intermixed_args(args)
+        except SystemExit as done:  # argparse: 0 after --help, 2 for bad usage
+            return done.code if isinstance(done.code, int) else 1
+        warning = api_key_warning(os.environ)
+        if warning:
+            print(warning, file=sys.stderr)
 
     owned = services is None
     try:
@@ -87,11 +92,15 @@ def main(argv: list[str] | None = None, services: Services | None = None) -> int
                 print(_missing_token(exc), file=sys.stderr)
                 return 1
             services = build(settings, _utc_now)
+        _settle(services)
+        if options is None:
+            print(log_view(summarize(services.store)))
+            return 0
         match = services.predictor.find_match(" ".join(options.query), choose_team)
         prediction = services.predictor.predict(match, fresh=options.fresh, model=options.model, share=options.share)
         print(full_view(prediction, None))  # None: the system zone, correct for each kickoff date
         if options.share:
-            text = share_text(prediction, None, None)
+            text = share_text(prediction, summarize(services.store).hit_rates["Match Result"], None)
             print()
             print(text)
             if copy_to_clipboard(text):
@@ -108,3 +117,11 @@ def main(argv: list[str] | None = None, services: Services | None = None) -> int
     finally:
         if owned and services is not None:
             services.close()
+
+
+def _settle(services: Services) -> None:
+    """Fill in the Results of past Matches; a source failing is a warning, as the command does not need them."""
+    try:
+        settle_pending(services.store, services.fdo, services.now())
+    except SourceError as exc:
+        print(f"Could not settle past Predictions: {exc}", file=sys.stderr)

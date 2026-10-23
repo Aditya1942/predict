@@ -36,6 +36,7 @@ def test_build_wires_the_real_services(monkeypatch, tmp_path):
         assert services.resolver.resolve_query("arsenal").name == "Arsenal FC"
         assert (tmp_path / "home" / "predict.db").exists()
         assert services.predictor is not None
+        assert services.now is now
     finally:
         services.close()
 

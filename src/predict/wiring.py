@@ -35,6 +35,7 @@ class Services:
     resolver: TeamResolver
     ratings: RatingsService
     predictor: Predictor
+    now: Callable[[], datetime]
     close: Callable[[], None] = _nothing
     odds: OddsApi | None = None
     jev: TypeSafeJev | None = None
@@ -70,6 +71,7 @@ def build(settings: Settings, now: Callable[[], datetime]) -> Services:
         resolver=resolver,
         ratings=ratings,
         predictor=predictor,
+        now=now,
         close=close,
         odds=odds,
         jev=jev,

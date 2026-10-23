@@ -20,6 +20,7 @@ from predict.domain import (
 from predict.errors import OddsUnavailable
 from predict.news.scoring import JevAnswers
 from predict.ratings import RatedMatch
+from predict.sources.football_data_org import MatchStatus
 from predict.sources.odds_api import OddsSnapshot
 
 _EPOCH = datetime(2026, 8, 1, tzinfo=UTC)
@@ -69,9 +70,18 @@ def rec(
 class FakeFdo:
     """football-data.org stand-in: upcoming Matches honour the requested date window."""
 
-    def __init__(self, matches: list[Match]) -> None:
+    def __init__(self, matches: list[Match], statuses: list[MatchStatus] | None = None) -> None:
         self.matches = matches
+        self.statuses = statuses or []
         self.upcoming_calls: list[tuple[int, date, date]] = []
+        self.status_calls: list[list[int]] = []
+        self.status_error: Exception | None = None
+
+    def matches_by_ids(self, ids: list[int]) -> list[MatchStatus]:
+        self.status_calls.append(list(ids))
+        if self.status_error is not None:
+            raise self.status_error
+        return [s for s in self.statuses if s.match.id in ids]
 
     def team_upcoming(self, team_id: int, date_from: date, date_to: date) -> list[Match]:
         self.upcoming_calls.append((team_id, date_from, date_to))

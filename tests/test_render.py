@@ -3,7 +3,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from predict.domain import MARKET_IDS, FactorImpact, HotTake, Prediction, ProjectedGoals
+from predict.domain import MARKET_IDS, FactorImpact, HotTake, Prediction, ProjectedGoals, Result
+from predict.log import LogSummary
 from predict.model.markets import market_probabilities
 from predict.model.scoreline import scoreline_matrix
 from predict.render import (
@@ -11,6 +12,7 @@ from predict.render import (
     copy_to_clipboard,
     format_kickoff,
     full_view,
+    log_view,
     market_label,
     share_text,
 )
@@ -349,3 +351,61 @@ def test_copy_to_clipboard_pipes_the_text_to_pbcopy(monkeypatch, tmp_path):
 def test_copy_to_clipboard_is_false_without_pbcopy(monkeypatch, tmp_path):
     monkeypatch.setenv("PATH", str(tmp_path))
     assert copy_to_clipboard("text") is False
+
+
+# --- the Prediction Log ---------------------------------------------------------------------------------------------
+
+RATE_KEYS = (
+    "Match Result",
+    "BTTS",
+    "Total Goals 1.5",
+    "Total Goals 2.5",
+    "Total Goals 3.5",
+    "Team Goals 0.5",
+    "Team Goals 1.5",
+    "Team Goals 2.5",
+)
+
+
+def log_summary(**changes) -> LogSummary:
+    fields = {"hit_rates": {key: (0, 0) for key in RATE_KEYS}, "hot_takes": (0, 0), "recent": [], **changes}
+    return LogSummary(**fields)
+
+
+def test_log_view_shows_each_hit_rate_as_hits_over_scored():
+    rates = {key: (0, 0) for key in RATE_KEYS} | {"Match Result": (1, 2), "Total Goals 2.5": (3, 4)}
+    lines = log_view(log_summary(hit_rates=rates)).splitlines()
+    assert any(line.startswith("Match Result") and "1/2 (50%)" in line for line in lines)
+    assert any(line.startswith("Total Goals 2.5") and "3/4 (75%)" in line for line in lines)
+    for key in RATE_KEYS:
+        assert any(line.startswith(key) for line in lines), key
+
+
+def test_log_view_shows_a_dash_where_nothing_is_scored():
+    line = next(line for line in log_view(log_summary()).splitlines() if line.startswith("BTTS"))
+    assert line.split() == ["BTTS", "—"]
+
+
+def test_log_view_shows_the_hot_take_record():
+    assert "Hot Takes" in log_view(log_summary(hot_takes=(3, 5)))
+    assert "3/5 (60%)" in log_view(log_summary(hot_takes=(3, 5)))
+    line = next(line for line in log_view(log_summary()).splitlines() if line.startswith("Hot Takes"))
+    assert line.split() == ["Hot", "Takes", "—"]
+
+
+def test_log_view_lists_recent_counted_predictions_with_hit_or_miss():
+    home_pick = prediction()  # Arsenal 1.62 v Chelsea 1.10: the Pick is Arsenal to win
+    other = prediction(match=make_match(CHELSEA, ARSENAL, kickoff=KICKOFF + timedelta(days=7)))
+    recent = [(home_pick, Result(home_goals=2, away_goals=1)), (other, Result(home_goals=0, away_goals=1))]
+    with system_zone("Europe/London"):
+        lines = [line.strip() for line in log_view(log_summary(recent=recent)).splitlines()]
+    assert "25 Oct  Arsenal 2-1 Chelsea  ·  Arsenal to win ✓" in lines
+    assert "01 Nov  Chelsea 0-1 Arsenal  ·  Chelsea to win ✗" in lines
+
+
+def test_log_view_says_when_there_is_nothing_yet():
+    assert "No scored Predictions yet" in log_view(log_summary())
+
+
+def test_log_view_is_plain_text():
+    assert "\x1b" not in log_view(log_summary(hot_takes=(1, 2)))

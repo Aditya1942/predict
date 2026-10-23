@@ -11,6 +11,7 @@ from rich.table import Table
 from rich.text import Text
 
 from predict.domain import HotTake, Match, Prediction
+from predict.log import LogSummary, outcome
 from predict.model.markets import pick
 from predict.news.adjust import top_reasons
 from predict.params import HOT_TAKE_THRESHOLD
@@ -21,6 +22,7 @@ _SHARE_TOTAL_LINE = 2.5
 _SHARE_TEAM_LINE = 1.5
 _SHARE_HOT_TAKES = 3
 _OPPONENT_SHOWN_FROM = 0.01  # a concede multiplier closer to 1 than this is not worth a mention
+_LOG_LABEL_WIDTH = 17
 
 
 def format_kickoff(kickoff: datetime, tz: tzinfo | None) -> str:
@@ -214,3 +216,28 @@ def copy_to_clipboard(text: str) -> bool:
     except (OSError, subprocess.CalledProcessError):
         return False
     return True
+
+
+def _rate(hits: int, scored: int) -> str:
+    return "—" if scored == 0 else f"{hits}/{scored} ({round(hits / scored * 100)}%)"
+
+
+def log_view(summary: LogSummary) -> str:
+    """The Prediction Log: Hit Rate per Market group, the Hot Take record and the latest Counted Predictions."""
+    lines = ["Prediction Log", ""]
+    rows = [*summary.hit_rates.items(), ("Hot Takes", summary.hot_takes)]
+    lines += [f"{label:<{_LOG_LABEL_WIDTH}}{_rate(hits, scored)}" for label, (hits, scored) in rows]
+    lines.append("")
+    if not summary.recent:
+        lines.append("No scored Predictions yet.")
+        return "\n".join(lines)
+    lines.append("Recent")
+    for prediction, result in summary.recent:
+        match = prediction.match
+        called = pick(prediction.probabilities["result"])
+        mark = "✓" if called == outcome("result", result) else "✗"
+        lines.append(
+            f"  {match.kickoff.astimezone():%d %b}  {match.home.short_name} {result.home_goals}-{result.away_goals}"
+            f" {match.away.short_name}  ·  {answer_label('result', called, match)} {mark}"
+        )
+    return "\n".join(lines)

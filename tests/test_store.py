@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from predict.domain import Prediction, ProjectedGoals
+from predict.domain import Prediction, ProjectedGoals, Result
 from predict.store import Store
 from tests.helpers import make_match, make_team
 
@@ -132,3 +132,52 @@ def test_dossier_round_trips_and_the_latest_wins(store):
     store.save_dossier(7, newer)
     assert store.latest_dossier(7) == newer
     assert store.latest_dossier(8) is None
+
+
+# --- results -----------------------------------------------------------------------------------------------------
+
+
+def test_results_start_empty(store):
+    assert store.results() == {}
+
+
+def test_a_finished_result_round_trips(store):
+    store.save_result(7, "finished", Result(home_goals=2, away_goals=1), T0)
+    assert store.results() == {7: ("finished", Result(home_goals=2, away_goals=1))}
+
+
+def test_a_void_result_has_no_score(store):
+    store.save_result(7, "void", None, T0)
+    assert store.results() == {7: ("void", None)}
+
+
+def test_a_result_for_a_match_replaces_the_earlier_one(store):
+    store.save_result(7, "void", None, T0)
+    store.save_result(7, "finished", Result(home_goals=0, away_goals=0), T0 + timedelta(days=1))
+    assert store.results() == {7: ("finished", Result(home_goals=0, away_goals=0))}
+
+
+def test_a_finished_result_needs_a_score_and_a_void_one_must_not_have_one(store):
+    with pytest.raises(ValueError, match="finished"):
+        store.save_result(7, "finished", None, T0)
+    with pytest.raises(ValueError, match="void"):
+        store.save_result(7, "void", Result(home_goals=1, away_goals=0), T0)
+    assert store.results() == {}
+
+
+def test_unsettled_match_ids_are_predicted_matches_that_kicked_off_with_no_result(store):
+    after = T0 + timedelta(days=3)  # the Matches kick off at T0 + 2 days
+    store.save_prediction(prediction(match_id=1))
+    store.save_prediction(prediction(match_id=1))  # two Predictions, one Match
+    store.save_prediction(prediction(match_id=2))
+    store.save_prediction(prediction(match_id=3))
+    assert store.unsettled_match_ids(after) == [1, 2, 3]
+    store.save_result(2, "void", None, T0)
+    assert store.unsettled_match_ids(after) == [1, 3]
+
+
+def test_unsettled_match_ids_leave_out_matches_that_have_not_kicked_off_before_the_cutoff(store):
+    store.save_prediction(prediction(match_id=1))
+    kickoff = store.all_predictions()[0].match.kickoff
+    assert store.unsettled_match_ids(kickoff) == []  # strictly before
+    assert store.unsettled_match_ids(kickoff + timedelta(seconds=1)) == [1]

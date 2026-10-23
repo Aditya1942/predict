@@ -8,8 +8,12 @@ import pytest
 
 from predict import cli
 from predict.cli import choose_team, main
+from predict.domain import Prediction, ProjectedGoals, Result
 from predict.errors import AmbiguousTeam, SourceError
+from predict.model.markets import market_probabilities
+from predict.model.scoreline import scoreline_matrix
 from predict.pipeline import Predictor
+from predict.sources.football_data_org import MatchStatus
 from predict.store import Store
 from predict.teams import Aliases, TeamResolver
 from predict.wiring import Services
@@ -48,10 +52,10 @@ def services_for():
     """Builds Services over fakes; every Store is closed after the test."""
     stores: list[Store] = []
 
-    def make(matches, *, now=NOW, clock=None, rater=None, dossiers=None, jev=None) -> Services:
+    def make(matches, *, now=NOW, clock=None, rater=None, dossiers=None, jev=None, statuses=None) -> Services:
         store = Store(":memory:")
         stores.append(store)
-        fdo = FakeFdo(matches)
+        fdo = FakeFdo(matches, statuses)
         resolver = TeamResolver(TEAMS, Aliases.load())
         ratings = rater or StubRater()
         return Services(
@@ -59,6 +63,7 @@ def services_for():
             fdo=fdo,
             resolver=resolver,
             ratings=ratings,
+            now=lambda: now,  # settling reads this, so a `clock` that counts its calls is left to the Predictor
             predictor=Predictor(
                 fdo,
                 ratings,
@@ -283,11 +288,95 @@ def test_source_error_exits_1(capsys, services_for):
     assert "understat: boom" in capsys.readouterr().err
 
 
-def test_log_is_reserved(capsys, services_for):
+def played(services, match_id: int, kickoff=NOW - timedelta(days=1)) -> None:
+    """A saved Prediction of a home win for a Match that has kicked off."""
+    projected = ProjectedGoals(home=1.8, away=0.9)
+    services.store.save_prediction(
+        Prediction(
+            match=make_match(CHELSEA, ARSENAL, kickoff=kickoff, id=match_id),
+            created_at=kickoff - timedelta(days=1),
+            projected_base=projected,
+            projected=projected,
+            probabilities=market_probabilities(scoreline_matrix(projected.home, projected.away)),
+        )
+    )
+
+
+def final(match_id: int, home: int, away: int) -> MatchStatus:
+    match = make_match(CHELSEA, ARSENAL, kickoff=NOW - timedelta(days=1), id=match_id)
+    return MatchStatus(match=match, status="FINISHED", result=Result(home_goals=home, away_goals=away))
+
+
+def test_log_prints_the_prediction_log(capsys, services_for):
     services = services_for([])
-    assert main(["log"], services) == 1
-    assert services.store.all_predictions() == []
-    assert capsys.readouterr().err
+    played(services, 1)
+    played(services, 2)
+    services.store.save_result(1, "finished", Result(home_goals=2, away_goals=0), NOW)
+    services.store.save_result(2, "finished", Result(home_goals=0, away_goals=1), NOW)
+    assert main(["log"], services) == 0
+    out = capsys.readouterr().out
+    assert "Match Result" in out
+    assert "1/2" in out
+    assert services.store.all_predictions()[0].shared_at is None
+    assert len(services.store.all_predictions()) == 2  # log makes no Prediction
+
+
+def test_log_settles_finished_matches_first(capsys, services_for):
+    services = services_for([], statuses=[final(1, 2, 0), final(2, 0, 1)])
+    played(services, 1)
+    played(services, 2)
+    assert main(["log"], services) == 0
+    assert "1/2" in capsys.readouterr().out
+    assert services.store.results() == {
+        1: ("finished", Result(home_goals=2, away_goals=0)),
+        2: ("finished", Result(home_goals=0, away_goals=1)),
+    }
+
+
+def test_predicting_settles_past_matches_first(services_for):
+    services = services_for(
+        [make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3), id=9)], statuses=[final(1, 2, 0)]
+    )
+    played(services, 1)
+    assert main(["Arsenal v Chelsea"], services) == 0
+    assert services.store.results() == {1: ("finished", Result(home_goals=2, away_goals=0))}
+
+
+def test_a_failing_settle_is_a_one_line_warning_and_the_command_goes_on(capsys, services_for):
+    services = services_for([make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3), id=9)])
+    played(services, 1)
+    services.fdo.status_error = SourceError("api.football-data.org", "boom")
+    assert main(["Arsenal v Chelsea"], services) == 0
+    captured = capsys.readouterr()
+    assert "Chelsea v Arsenal" in captured.out
+    warning = [line for line in captured.err.splitlines() if "boom" in line]
+    assert len(warning) == 1
+    assert "settle" in warning[0].lower()
+
+    assert main(["log"], services) == 0
+    assert "Match Result" in capsys.readouterr().out
+
+
+def test_share_text_carries_the_match_result_record(capsys, services_for):
+    services = services_for(
+        [make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3), id=9)],
+        statuses=[final(1, 2, 0), final(2, 0, 1)],
+    )
+    played(services, 1)
+    played(services, 2)
+    assert main(["Arsenal v Chelsea", "--share"], services) == 0
+    assert "📈 Record: 1/2 results called" in capsys.readouterr().out
+
+
+def test_share_text_has_no_record_before_anything_is_scored(capsys, services_for):
+    services = services_for([make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3))])
+    assert main(["Arsenal v Chelsea", "--share"], services) == 0
+    assert "📈" not in capsys.readouterr().out
+
+
+def test_log_takes_no_arguments(capsys, services_for):
+    assert main(["log", "arsenal"], services_for([])) == 2
+    assert "usage" in capsys.readouterr().err.lower()
 
 
 def test_no_query_is_a_usage_error(capsys, services_for):
