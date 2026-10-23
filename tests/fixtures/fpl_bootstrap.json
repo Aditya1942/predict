@@ -1,0 +1,205 @@
+{
+ "_note": "Trimmed from the live FPL bootstrap-static (https://fantasy.premierleague.com/api/bootstrap-static/): all 20 teams, and a sample of Arsenal and Man City players.",
+ "teams": [
+  {
+   "id": 1,
+   "name": "Arsenal",
+   "short_name": "ARS"
+  },
+  {
+   "id": 2,
+   "name": "Aston Villa",
+   "short_name": "AVL"
+  },
+  {
+   "id": 3,
+   "name": "Bournemouth",
+   "short_name": "BOU"
+  },
+  {
+   "id": 4,
+   "name": "Brentford",
+   "short_name": "BRE"
+  },
+  {
+   "id": 5,
+   "name": "Brighton",
+   "short_name": "BHA"
+  },
+  {
+   "id": 6,
+   "name": "Chelsea",
+   "short_name": "CHE"
+  },
+  {
+   "id": 7,
+   "name": "Coventry City",
+   "short_name": "COV"
+  },
+  {
+   "id": 8,
+   "name": "Crystal Palace",
+   "short_name": "CRY"
+  },
+  {
+   "id": 9,
+   "name": "Everton",
+   "short_name": "EVE"
+  },
+  {
+   "id": 10,
+   "name": "Fulham",
+   "short_name": "FUL"
+  },
+  {
+   "id": 11,
+   "name": "Hull City",
+   "short_name": "HUL"
+  },
+  {
+   "id": 12,
+   "name": "Ipswich Town",
+   "short_name": "IPS"
+  },
+  {
+   "id": 13,
+   "name": "Leeds",
+   "short_name": "LEE"
+  },
+  {
+   "id": 14,
+   "name": "Liverpool",
+   "short_name": "LIV"
+  },
+  {
+   "id": 15,
+   "name": "Man City",
+   "short_name": "MCI"
+  },
+  {
+   "id": 16,
+   "name": "Man Utd",
+   "short_name": "MUN"
+  },
+  {
+   "id": 17,
+   "name": "Newcastle",
+   "short_name": "NEW"
+  },
+  {
+   "id": 18,
+   "name": "Nott'm Forest",
+   "short_name": "NFO"
+  },
+  {
+   "id": 19,
+   "name": "Spurs",
+   "short_name": "TOT"
+  },
+  {
+   "id": 20,
+   "name": "Sunderland",
+   "short_name": "SUN"
+  }
+ ],
+ "elements": [
+  {
+   "web_name": "Raya",
+   "team": 1,
+   "status": "a",
+   "chance_of_playing_next_round": null,
+   "news": ""
+  },
+  {
+   "web_name": "Arrizabalaga",
+   "team": 1,
+   "status": "a",
+   "chance_of_playing_next_round": null,
+   "news": ""
+  },
+  {
+   "web_name": "Saliba",
+   "team": 1,
+   "status": "i",
+   "chance_of_playing_next_round": 0,
+   "news": "Back injury - Unknown return date"
+  },
+  {
+   "web_name": "Hincapie",
+   "team": 1,
+   "status": "d",
+   "chance_of_playing_next_round": 75,
+   "news": "Ankle injury - 75% chance of playing"
+  },
+  {
+   "web_name": "Saka",
+   "team": 1,
+   "status": "d",
+   "chance_of_playing_next_round": 50,
+   "news": "Thigh injury - 50% chance of playing"
+  },
+  {
+   "web_name": "Martinelli",
+   "team": 1,
+   "status": "u",
+   "chance_of_playing_next_round": 0,
+   "news": "Has joined Al Hilal permanently"
+  },
+  {
+   "web_name": "Tzolis",
+   "team": 1,
+   "status": "i",
+   "chance_of_playing_next_round": 0,
+   "news": "Hamstring injury - Expected back 1 Nov"
+  },
+  {
+   "web_name": "Enzo",
+   "team": 15,
+   "status": "a",
+   "chance_of_playing_next_round": null,
+   "news": ""
+  },
+  {
+   "web_name": "Ndiaye",
+   "team": 15,
+   "status": "a",
+   "chance_of_playing_next_round": null,
+   "news": ""
+  },
+  {
+   "web_name": "O'Reilly",
+   "team": 15,
+   "status": "d",
+   "chance_of_playing_next_round": 75,
+   "news": "Back injury - 75% chance of playing"
+  },
+  {
+   "web_name": "Matheus N.",
+   "team": 15,
+   "status": "d",
+   "chance_of_playing_next_round": 75,
+   "news": "Unspecified injury - 75% chance of playing"
+  },
+  {
+   "web_name": "Alleyne",
+   "team": 15,
+   "status": "u",
+   "chance_of_playing_next_round": 0,
+   "news": "Has joined Burnley on loan for the rest of the season"
+  },
+  {
+   "web_name": "Semenyo",
+   "team": 15,
+   "status": "i",
+   "chance_of_playing_next_round": 0,
+   "news": "Knee injury - Unknown return date"
+  },
+  {
+   "web_name": "Kovačić",
+   "team": 15,
+   "status": "d",
+   "chance_of_playing_next_round": 75,
+   "news": "Unspecified injury - 75% chance of playing"
+  }
+ ]
+}

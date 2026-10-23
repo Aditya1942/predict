@@ -165,6 +165,49 @@ class HotTake(_Frozen):
         return self.model_p - self.book_p
 
 
+FactorKind = Literal["absence", "doubtful", "return", "rotation", "hot_streak", "cold_streak"]
+
+
+class NewsFactor(_Frozen):
+    """One item of Team News."""
+
+    kind: FactorKind
+    player: str | None = Field(default=None, description="The player this is about, if it is about one")
+    summary: str = Field(description="One or two plain sentences of fact")
+    misses_match: Literal["yes", "likely", "no", "n/a"] = Field(
+        description="Whether the player misses this Match, with every date resolved against kickoff; n/a if this is"
+        " not a question of availability"
+    )
+    matches_missed_of_last_6: int | None = Field(
+        default=None, description="For an absence: how many of the team's last 6 matches the player missed"
+    )
+    sources: list[str] = Field(default_factory=list, description="URLs the facts come from")
+
+
+class NewsDossier(_Frozen):
+    """One team's Team News for one Match."""
+
+    team: str
+    factors: list[NewsFactor]
+    lineup_confirmed: bool = Field(default=False, description="True once the official starting XI is published")
+
+
+class ResearchOutput(_Frozen):
+    """What the research step must return: one News Dossier per team."""
+
+    home: NewsDossier
+    away: NewsDossier
+
+
+class MatchDossier(_Frozen):
+    """Both teams' News Dossiers for a Match, with when and by which Claude model they were made."""
+
+    home: NewsDossier
+    away: NewsDossier
+    created_at: AwareDatetime
+    claude_model: str
+
+
 class Prediction(_Frozen):
     """A saved Prediction. `projected_base` is the stats-only model, `projected` what the Markets use.
 

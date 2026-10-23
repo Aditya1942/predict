@@ -100,3 +100,35 @@ def test_update_prediction_needs_a_saved_prediction(store):
     unknown = prediction().model_copy(update={"id": 99})
     with pytest.raises(ValueError, match="saved"):
         store.update_prediction(unknown)
+
+
+def make_dossier(created_at, model="claude-opus-5-5"):
+    from predict.domain import MatchDossier, NewsDossier, NewsFactor
+
+    factor = NewsFactor(
+        kind="absence",
+        player="Saka",
+        summary="Out",
+        misses_match="yes",
+        matches_missed_of_last_6=2,
+        sources=["https://example.com"],
+    )
+    return MatchDossier(
+        home=NewsDossier(team="Arsenal", factors=[factor], lineup_confirmed=False),
+        away=NewsDossier(team="Chelsea", factors=[], lineup_confirmed=True),
+        created_at=created_at,
+        claude_model=model,
+    )
+
+
+def test_latest_dossier_is_none_without_one(store):
+    assert store.latest_dossier(7) is None
+
+
+def test_dossier_round_trips_and_the_latest_wins(store):
+    older, newer = make_dossier(T0), make_dossier(T0 + timedelta(hours=7), model="other")
+    store.save_dossier(7, older)
+    assert store.latest_dossier(7) == older
+    store.save_dossier(7, newer)
+    assert store.latest_dossier(7) == newer
+    assert store.latest_dossier(8) is None

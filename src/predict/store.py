@@ -4,7 +4,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from predict.domain import Prediction
+from predict.domain import MatchDossier, Prediction
 
 _SCHEMA = (
     """
@@ -26,6 +26,17 @@ _SCHEMA = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS predictions_match ON predictions (match_id)",
+    # `body` is the whole MatchDossier as JSON.
+    """
+    CREATE TABLE IF NOT EXISTS dossiers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        claude_model TEXT NOT NULL,
+        body TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS dossiers_match ON dossiers (match_id)",
 )
 
 
@@ -99,6 +110,20 @@ class Store:
     def all_predictions(self) -> list[Prediction]:
         rows = self._conn.execute("SELECT id, body FROM predictions ORDER BY id")
         return [_prediction(*row) for row in rows.fetchall()]
+
+    def save_dossier(self, match_id: int, dossier: MatchDossier) -> None:
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO dossiers (match_id, created_at, claude_model, body) VALUES (?, ?, ?, ?)",
+                (match_id, _utc(dossier.created_at), dossier.claude_model, dossier.model_dump_json()),
+            )
+
+    def latest_dossier(self, match_id: int) -> MatchDossier | None:
+        """The most recently saved News Dossier for the Match."""
+        row = self._conn.execute(
+            "SELECT body FROM dossiers WHERE match_id = ? ORDER BY id DESC LIMIT 1", (match_id,)
+        ).fetchone()
+        return None if row is None else MatchDossier.model_validate_json(row[0])
 
 
 def _columns(p: Prediction) -> tuple[int, str | None, str | None, str | None, str]:

@@ -52,3 +52,11 @@ class OddsUnavailable(Exception):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class ResearchFailed(Exception):
+    """Claude could not produce Team News for this Match; `reason` is fit to show the user."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
