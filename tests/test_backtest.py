@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from predict import backtest
-from predict.backtest import BacktestReport, Forecast, brier, format_reports, run_backtest, walk_forward
+from predict.backtest import BacktestPrediction, BacktestReport, brier, format_reports, run_backtest, walk_forward
 from predict.domain import LEAGUES, Competition, MatchRecord
 from predict.errors import SourceError
 from predict.http import CachedHttp
@@ -101,7 +101,7 @@ def league(*, change=None, odds=None):
     return FakeUnderstat(understat_seasons), FakeCouk(odds if odds is not None else closing_odds(START, 0))
 
 
-def forecasts(**kwargs) -> list[Forecast]:
+def predicted(**kwargs) -> list[BacktestPrediction]:
     source, couk = league(**{k: kwargs.pop(k) for k in ("change", "odds") if k in kwargs})
     return walk_forward(PL, 2025, source, couk, NO_ALIASES, **kwargs)
 
@@ -255,8 +255,8 @@ def test_the_champions_league_has_no_csv(csv_rig):
 # --- the walk-forward ---
 
 
-def test_every_match_is_forecast_with_probabilities_that_sum_to_one():
-    found = forecasts()
+def test_every_match_is_predicted_with_probabilities_that_sum_to_one():
+    found = predicted()
     assert len(found) == 12
     for f in found:
         assert set(f.result) == {"home", "draw", "away"}
@@ -267,18 +267,18 @@ def test_every_match_is_forecast_with_probabilities_that_sum_to_one():
 
 def test_a_result_on_a_date_never_reaches_another_match_that_date():
     """Round 3 (index 3) has two matches on the same day: neither may see the other's result."""
-    before = forecasts()
-    after = forecasts(change={(3, 0): (0, 6)})  # the first match of that day ends differently
+    before = predicted()
+    after = predicted(change={(3, 0): (0, 6)})  # the first match of that day ends differently
     changed = {i for i, (b, a) in enumerate(zip(before, after, strict=True)) if b.result != a.result}
-    same_day = {6, 7}  # forecasts are in couk order: two per round
+    same_day = {6, 7}  # predictions are in couk order: two per round
     assert changed.isdisjoint(same_day)
     assert changed.isdisjoint(set(range(0, 6)))  # earlier rounds cannot change either
     assert changed == set(range(8, 12))  # ... but the later rounds learn from it
 
 
-def test_a_result_from_before_the_date_does_change_the_forecast():
-    before = forecasts()
-    after = forecasts(change={(0, 0): (5, 0)})
+def test_a_result_from_before_the_date_does_change_the_prediction():
+    before = predicted()
+    after = predicted(change={(0, 0): (5, 0)})
     assert before[0].result == after[0].result  # round 0 sees only last season
     assert before[2].result != after[2].result  # round 1 sees round 0
 
@@ -291,9 +291,9 @@ def test_the_season_before_is_used_and_a_match_with_no_history_is_skipped():
     assert found[0].odds.kickoff == START + timedelta(days=7)
 
 
-def test_matches_with_no_closing_odds_rows_are_not_forecast():
+def test_matches_with_no_closing_odds_rows_are_not_predicted():
     odds = closing_odds(START, 0, rounds=[1, 2])
-    assert len(forecasts(odds=odds)) == 4
+    assert len(predicted(odds=odds)) == 4
 
 
 def test_couk_names_map_to_understat_names_through_the_overrides():
@@ -309,7 +309,7 @@ def test_couk_names_map_to_understat_names_through_the_overrides():
         walk_forward(PL, 2025, source, couk, NO_ALIASES)
     aliases = Aliases(source={"football_data_couk": {"the reds": "Alpha"}})
     assert len(walk_forward(PL, 2025, source, couk, aliases)) == 12
-    assert [f.result for f in walk_forward(PL, 2025, source, couk, aliases)] == [f.result for f in forecasts()]
+    assert [f.result for f in walk_forward(PL, 2025, source, couk, aliases)] == [f.result for f in predicted()]
 
 
 def test_the_unmapped_error_names_the_alias_table():
@@ -320,18 +320,18 @@ def test_the_unmapped_error_names_the_alias_table():
 
 
 def test_the_keyword_overrides_reach_the_model():
-    base = forecasts()
-    assert forecasts(rho=0.0) != base
-    assert forecasts(form_weight=0.0) != base
-    assert forecasts(full=4) != base
-    assert forecasts(rho=-0.05, form_weight=0.3, full=18) == base  # the defaults
+    base = predicted()
+    assert predicted(rho=0.0) != base
+    assert predicted(form_weight=0.0) != base
+    assert predicted(full=4) != base
+    assert predicted(rho=-0.05, form_weight=0.3, full=18) == base  # the defaults
 
 
 # --- the report ---
 
 
 def test_report_from_hand_worked_odds():
-    # Two matches on separate days; the 1st: home favourite wins, the 2nd: away favourite but a draw.
+    # Two matches on separate days; the 1st: home has the shortest price and wins, the 2nd: away has it but a draw.
     first = ClosingOdds(
         kickoff=START + timedelta(days=7),
         home_name="Alpha",
@@ -461,6 +461,15 @@ def test_main_exits_2_when_a_source_fails(run_main, capsys):
     captured = capsys.readouterr()
     assert "timed out" in captured.err
     assert captured.out == ""
+
+
+def test_main_expands_a_tilde_in_home(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    source, couk = league(odds=priced(closing_odds(START, 0), right=50.0, wrong=1.01))
+    monkeypatch.setattr(backtest, "Understat", lambda http: source)
+    monkeypatch.setattr(backtest, "FootballDataCoUk", lambda http: couk)
+    assert backtest.main(["--season", "2025", "--home", "~/cache"]) == 0
+    assert (tmp_path / "cache" / "predict.db").exists()
 
 
 def test_main_needs_a_season(capsys):

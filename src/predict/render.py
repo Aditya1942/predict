@@ -14,8 +14,11 @@ _WIDTH = 100
 _SIDES = ("home", "away")
 
 
-def format_kickoff(kickoff: datetime, tz: tzinfo) -> str:
-    """"Sun 25 Oct, 22:00 IST": the kickoff in the viewer's own time."""
+def format_kickoff(kickoff: datetime, tz: tzinfo | None) -> str:
+    """"Sun 25 Oct, 22:00 IST": the kickoff in local time.
+
+    `tz=None` means the system zone, applying its daylight-saving rules to this kickoff's own date.
+    """
     return kickoff.astimezone(tz).strftime("%a %d %b, %H:%M %Z").strip()
 
 
@@ -56,7 +59,7 @@ def answer_label(market_id: str, answer: str, match: Match) -> str:
     return labels[answer]
 
 
-def full_view(p: Prediction, tz: tzinfo) -> str:
+def full_view(p: Prediction, tz: tzinfo | None) -> str:
     match = p.match
     console = Console(file=io.StringIO(), record=True, width=_WIDTH, force_terminal=False, color_system=None)
 

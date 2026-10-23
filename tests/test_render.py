@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -6,7 +7,7 @@ from predict.domain import MARKET_IDS, Prediction, ProjectedGoals
 from predict.model.markets import market_probabilities
 from predict.model.scoreline import scoreline_matrix
 from predict.render import answer_label, format_kickoff, full_view, market_label
-from tests.helpers import make_match, make_team
+from tests.helpers import make_match, make_team, system_zone
 
 ARSENAL = make_team(1, "Arsenal")
 CHELSEA = make_team(2, "Chelsea")
@@ -82,6 +83,30 @@ def test_unknown_answer_is_an_error():
 def test_format_kickoff_is_local():
     assert format_kickoff(KICKOFF, IST) == "Sun 25 Oct, 22:00 IST"
     assert format_kickoff(KICKOFF, UTC) == "Sun 25 Oct, 16:30 UTC"
+
+
+LONDON = ZoneInfo("Europe/London")
+BST_KICKOFF = datetime(2026, 10, 24, 15, 0, tzinfo=UTC)  # the clocks go back on 25 Oct 2026
+GMT_KICKOFF = datetime(2026, 11, 7, 15, 0, tzinfo=UTC)
+
+
+def test_format_kickoff_follows_the_daylight_saving_rules_of_a_named_zone():
+    assert format_kickoff(BST_KICKOFF, LONDON) == "Sat 24 Oct, 16:00 BST"
+    assert format_kickoff(GMT_KICKOFF, LONDON) == "Sat 07 Nov, 15:00 GMT"
+
+
+def test_format_kickoff_without_a_zone_uses_the_system_zone_rules_for_each_instant():
+    with system_zone("Europe/London"):
+        assert format_kickoff(BST_KICKOFF, None) == "Sat 24 Oct, 16:00 BST"
+        assert format_kickoff(GMT_KICKOFF, None) == "Sat 07 Nov, 15:00 GMT"
+    with system_zone("Asia/Kolkata"):
+        assert format_kickoff(GMT_KICKOFF, None) == "Sat 07 Nov, 20:30 IST"
+
+
+def test_full_view_without_a_zone_shows_local_time():
+    with system_zone("Europe/London"):
+        text = full_view(prediction(match=make_match(ARSENAL, CHELSEA, kickoff=GMT_KICKOFF)), None)
+    assert "Arsenal v Chelsea · Premier League · Sat 07 Nov, 15:00 GMT" in text
 
 
 def test_full_view_header_and_projected_goals():

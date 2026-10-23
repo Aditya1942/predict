@@ -43,8 +43,8 @@ class CoukSource(Protocol):
     def season(self, comp: Competition, season: int) -> list[ClosingOdds]: ...
 
 
-class Forecast(BaseModel):
-    """The model's Match Result and Total Goals 2.5 probabilities for one played Match."""
+class BacktestPrediction(BaseModel):
+    """The model's Match Result and Total Goals 2.5 probabilities for one played Match, from earlier dates only."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -84,8 +84,8 @@ def walk_forward(
     rho: float = RHO,
     form_weight: float = FORM_WEIGHT,
     full: int = SEASON_FULL_WEIGHT_MATCHES,
-) -> list[Forecast]:
-    """Forecast every Match in the football-data.co.uk file, in file order.
+) -> list[BacktestPrediction]:
+    """Predict every Match in the football-data.co.uk file, in file order.
 
     A Match with no earlier Understat record in either season is left out.
     """
@@ -97,7 +97,7 @@ def walk_forward(
     last, current = _with_ids(last, id_of), _with_ids(current, id_of)
     last_times, current_times = [r.kickoff for r in last], [r.kickoff for r in current]
 
-    forecasts = []
+    predictions = []
     for row in odds:
         before_last = last[: bisect_left(last_times, row.kickoff)]
         before_current = current[: bisect_left(current_times, row.kickoff)]
@@ -117,8 +117,10 @@ def walk_forward(
         ]
         projected = projected_goals(ratings[0], ratings[1], base)
         probabilities = market_probabilities(scoreline_matrix(projected.home, projected.away, rho=rho))
-        forecasts.append(Forecast(odds=row, result=probabilities["result"], total25=probabilities["total:2.5"]))
-    return forecasts
+        predictions.append(
+            BacktestPrediction(odds=row, result=probabilities["result"], total25=probabilities["total:2.5"])
+        )
+    return predictions
 
 
 def run_backtest(
@@ -132,12 +134,12 @@ def run_backtest(
     form_weight: float = FORM_WEIGHT,
     full: int = SEASON_FULL_WEIGHT_MATCHES,
 ) -> BacktestReport:
-    forecasts = walk_forward(comp, season, understat, couk, aliases, rho=rho, form_weight=form_weight, full=full)
-    if not forecasts:
+    predictions = walk_forward(comp, season, understat, couk, aliases, rho=rho, form_weight=form_weight, full=full)
+    if not predictions:
         raise SourceError("backtest", f"no matches to evaluate for the {comp.display} {season}/{season + 1} season")
     model_result = book_result = model_total = book_total = 0.0
     model_hits = book_hits = 0
-    for f in forecasts:
+    for f in predictions:
         row = f.odds
         outcome = "home" if row.home_goals > row.away_goals else "away" if row.home_goals < row.away_goals else "draw"
         total = "over" if row.home_goals + row.away_goals > 2.5 else "under"
@@ -149,7 +151,7 @@ def run_backtest(
         book_total += brier(book_ou, total)
         model_hits += pick(f.result) == outcome
         book_hits += pick(book_probs) == outcome
-    n = len(forecasts)
+    n = len(predictions)
     return BacktestReport(
         n=n,
         model_brier_result=model_result / n,
@@ -188,7 +190,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Exit 0 on PASS, 1 on FAIL, 2 when a source fails."""
     parser = argparse.ArgumentParser(prog="python -m predict.backtest", description=__doc__)
     parser.add_argument("--season", type=int, required=True, help="start year of the season, e.g. 2025 for 2025/26")
-    parser.add_argument("--home", type=Path, default=DEFAULT_HOME, help="folder of the cache database")
+    parser.add_argument("--home", type=_path, default=DEFAULT_HOME, help="folder of the cache database")
     args = parser.parse_args(argv)
 
     store = Store(args.home / "predict.db")
@@ -209,6 +211,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     text, passed = format_reports(args.season, reports)
     print(text, end="")
     return 0 if passed else 1
+
+
+def _path(text: str) -> Path:
+    return Path(text).expanduser()
 
 
 def _mean(values) -> float:

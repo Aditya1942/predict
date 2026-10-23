@@ -13,7 +13,7 @@ from predict.pipeline import Predictor
 from predict.store import Store
 from predict.teams import Aliases, TeamResolver
 from predict.wiring import Services
-from tests.helpers import FakeFdo, StubRater, make_match, make_team
+from tests.helpers import FakeFdo, StubRater, make_match, make_team, system_zone
 
 NOW = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)
 
@@ -30,7 +30,7 @@ def services_for():
     """Builds Services over fakes; every Store is closed after the test."""
     stores: list[Store] = []
 
-    def make(matches, *, now=NOW, rater=None) -> Services:
+    def make(matches, *, now=NOW, clock=None, rater=None) -> Services:
         store = Store(":memory:")
         stores.append(store)
         fdo = FakeFdo(matches)
@@ -41,7 +41,7 @@ def services_for():
             fdo=fdo,
             resolver=resolver,
             ratings=ratings,
-            predictor=Predictor(fdo, ratings, resolver, store, now=lambda: now),
+            predictor=Predictor(fdo, ratings, resolver, store, now=clock or (lambda: now)),
         )
 
     yield make
@@ -83,7 +83,7 @@ def test_ambiguous_team_declined_exits_1(monkeypatch, capsys, services_for):
     services = services_for([make_match(REAL_MADRID, ARSENAL, kickoff=NOW + timedelta(days=3))])
     stdin(monkeypatch, "\n")
     assert main(["real"], services) == 1
-    assert "Cancelled" in capsys.readouterr().err
+    assert "No team chosen" in capsys.readouterr().err
     assert services.store.all_predictions() == []
 
 
@@ -118,13 +118,36 @@ def test_single_candidate_ambiguity_goes_through_the_confirmation(monkeypatch, c
     assert "Did you mean Chelsea?" in capsys.readouterr().err
 
 
-def test_after_kickoff_exits_1_with_locked(capsys, services_for):
-    match = make_match(CHELSEA, ARSENAL, kickoff=NOW - timedelta(minutes=5))
-    services = services_for([match])
+def test_kickoff_passing_during_the_run_exits_1_with_locked(capsys, services_for):
+    """The Match is upcoming when found and has started by the time it is predicted."""
+    match = make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(minutes=1))
+    times = iter([NOW, NOW + timedelta(minutes=2)])
+    services = services_for([match], clock=lambda: next(times))
     assert main(["Arsenal v Chelsea"], services) == 1
     err = capsys.readouterr().err
     assert "Kickoff has passed — Predictions are locked." in err
     assert services.store.all_predictions() == []
+
+
+def test_a_match_that_has_started_is_not_offered(capsys, services_for):
+    services = services_for([make_match(CHELSEA, ARSENAL, kickoff=NOW - timedelta(minutes=5))])
+    assert main(["Arsenal v Chelsea"], services) == 1
+    assert "no upcoming match between Arsenal and Chelsea" in capsys.readouterr().err
+    assert services.store.all_predictions() == []
+
+
+@pytest.mark.parametrize(
+    ("kickoff", "shown"),
+    [
+        (datetime(2026, 10, 24, 15, 0, tzinfo=UTC), "Sat 24 Oct, 16:00 BST"),
+        (datetime(2026, 11, 7, 15, 0, tzinfo=UTC), "Sat 07 Nov, 15:00 GMT"),
+    ],
+)
+def test_kickoff_is_shown_in_the_system_zone_with_its_own_daylight_saving(capsys, services_for, kickoff, shown):
+    services = services_for([make_match(CHELSEA, ARSENAL, kickoff=kickoff)])
+    with system_zone("Europe/London"):
+        assert main(["Arsenal v Chelsea"], services) == 0
+    assert shown in capsys.readouterr().out
 
 
 def test_unknown_team_exits_1_with_suggestions(capsys, services_for):

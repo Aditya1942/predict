@@ -152,7 +152,7 @@ class LeagueBase(_Frozen):
 
 
 class Prediction(_Frozen):
-    """A saved forecast for one Match. `projected_base` is the stats-only model, `projected` what the Markets use."""
+    """A saved Prediction. `projected_base` is the stats-only model, `projected` what the Markets use."""
 
     id: int | None = None
     match: Match

@@ -85,10 +85,10 @@ def main(argv: list[str] | None = None, services: Services | None = None) -> int
             services = build(settings, _utc_now)
         match = services.predictor.find_match(" ".join(options.query), choose_team)
         prediction = services.predictor.predict(match)
-        print(full_view(prediction, datetime.now(UTC).astimezone().tzinfo or UTC))
+        print(full_view(prediction, None))  # None: the system zone, correct for each kickoff date
         return 0
     except Declined:
-        print("Cancelled.", file=sys.stderr)
+        print("No team chosen.", file=sys.stderr)
         return 1
     except (TeamNotFound, MatchNotFound, PredictionLocked, SourceError) as exc:
         print(exc, file=sys.stderr)

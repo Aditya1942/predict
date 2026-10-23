@@ -75,6 +75,19 @@ def test_find_match_looks_from_today_for_the_search_window(store):
     assert fdo.upcoming_calls == [(ARSENAL.id, NOW.date(), NOW.date() + timedelta(days=60))]
 
 
+def test_find_match_skips_matches_that_have_already_kicked_off(store):
+    """The upcoming list can be cached from before kickoff, so it may still hold a Match that has started."""
+    started = make_match(ARSENAL, CHELSEA, kickoff=NOW - timedelta(minutes=1), id=1)
+    starting_now = make_match(ARSENAL, EVERTON, kickoff=NOW, id=2)
+    next_up = make_match(ARSENAL, FULHAM, kickoff=days(3), id=3)
+    p = predictor([started, starting_now, next_up], store)
+    assert p.find_match("arsenal", never) == next_up
+    with pytest.raises(MatchNotFound):
+        p.find_match("Arsenal v Chelsea", never)
+    with pytest.raises(MatchNotFound):
+        p.find_match("Arsenal v Everton", never)
+
+
 def test_find_match_outside_window_is_not_found(store):
     far = make_match(ARSENAL, CHELSEA, kickoff=days(61))
     with pytest.raises(MatchNotFound) as caught:

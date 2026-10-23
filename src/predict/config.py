@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_HOME = Path.home() / ".predict"
@@ -16,3 +17,8 @@ class Settings(BaseSettings):
     claude_model: str = "claude-opus-5-5"
     jev_model: str = "jev-1.13.0"
     predict_home: Path = DEFAULT_HOME
+
+    @field_validator("predict_home")
+    @classmethod
+    def _expand_home(cls, path: Path) -> Path:
+        return path.expanduser()

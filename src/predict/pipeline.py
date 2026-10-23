@@ -39,7 +39,7 @@ class Predictor:
         self._now = now
 
     def find_match(self, query: str, choose: Callable[[list[Team]], Team]) -> Match:
-        """The earliest upcoming Match for "A v B" (either home/away order) or for one team.
+        """The earliest Match still to kick off for "A v B" (either home/away order) or for one team.
 
         `choose` picks a team when the text could mean several; whatever it raises propagates.
         """
@@ -47,8 +47,14 @@ class Predictor:
         first = self._resolve(first_text, choose)
         second = self._resolve(second_text, choose) if second_text is not None else None
 
-        today = self._now().astimezone(UTC).date()
-        upcoming = self._fdo.team_upcoming(first.id, today, today + timedelta(days=SEARCH_WINDOW_DAYS))
+        now = self._now().astimezone(UTC)
+        today = now.date()
+        # The upcoming list may be cached from before kickoff, so drop any Match that has started since.
+        upcoming = [
+            m
+            for m in self._fdo.team_upcoming(first.id, today, today + timedelta(days=SEARCH_WINDOW_DAYS))
+            if m.kickoff > now
+        ]
         if second is None:
             matches = upcoming
             nothing = f"no upcoming match for {first.name}"

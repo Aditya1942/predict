@@ -1,4 +1,9 @@
+import os
+import time
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
+
+import pytest
 
 from predict.domain import Competition, LeagueBase, Match, MatchRecord, ProjectedGoals, Team, TeamRating
 from predict.ratings import RatedMatch
@@ -80,3 +85,21 @@ class StubRater:
             base=LeagueBase(home_goals=1.5, away_goals=1.2),
             projected=self.projected,
         )
+
+
+@contextmanager
+def system_zone(name: str):
+    """Make the process's local time zone `name` (an IANA name) for the duration of the block."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is not available on this platform")
+    before = os.environ.get("TZ")
+    os.environ["TZ"] = name
+    time.tzset()
+    try:
+        yield
+    finally:
+        if before is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = before
+        time.tzset()
