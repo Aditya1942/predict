@@ -1,0 +1,42 @@
+[project]
+name = "predict"
+version = "0.1.0"
+description = "Football Match probability predictor CLI"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx",
+    "pydantic>=2",
+    "pydantic-settings",
+    "typer",
+    "rich",
+    "rapidfuzz",
+    "numpy",
+    "claude-agent-sdk",
+    "typesafe-sdk",
+]
+
+[project.scripts]
+predict = "predict.cli:main"
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/predict"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+addopts = "--import-mode=importlib"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "."]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
