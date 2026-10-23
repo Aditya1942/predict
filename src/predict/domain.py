@@ -151,6 +151,18 @@ class LeagueBase(_Frozen):
     away_goals: float
 
 
+class Prediction(_Frozen):
+    """A saved forecast for one Match. `projected_base` is the stats-only model, `projected` what the Markets use."""
+
+    id: int | None = None
+    match: Match
+    created_at: AwareDatetime
+    projected_base: ProjectedGoals
+    projected: ProjectedGoals
+    probabilities: Probabilities
+    shared_at: AwareDatetime | None = None
+
+
 def season_of(dt: datetime) -> int:
     """The season's start year: July onwards belongs to the season starting that year."""
     return dt.year if dt.month >= 7 else dt.year - 1

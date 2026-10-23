@@ -1,6 +1,6 @@
 """Errors raised across the predictor."""
 
-from predict.domain import Team
+from predict.domain import Match, Team
 
 
 class SourceError(Exception):
@@ -28,3 +28,19 @@ class AmbiguousTeam(Exception):
         super().__init__(f"{text!r} could be: {', '.join(t.name for t in candidates)}")
         self.text = text
         self.candidates = candidates
+
+
+class MatchNotFound(Exception):
+    """No upcoming Match fits what the user asked for."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+class PredictionLocked(Exception):
+    """The Match has kicked off, so it can no longer be predicted."""
+
+    def __init__(self, match: Match) -> None:
+        super().__init__("Kickoff has passed — Predictions are locked.")
+        self.match = match
