@@ -70,20 +70,23 @@ class FootballDataOrg:
         return payload.get("matches")
 
     def _get(self, path: str, *, ttl: timedelta, params: dict | None = None) -> dict:
-        return self._http.get_json(
+        payload = self._http.get_json(
             BASE_URL + path,
             ttl=ttl,
             params=params,
             headers={"X-Auth-Token": self._token},
             min_interval=MIN_INTERVAL,
         )
+        if not isinstance(payload, dict):
+            raise SourceError(SOURCE, f"unexpected response: expected a JSON object, got {type(payload).__name__}")
+        return payload
 
 
 def _parse_all[T](items: Any, parse: Callable[[dict], T | None]) -> list[T]:
     """Parse every item, dropping those `parse` returns None for."""
     try:
         parsed = [parse(item) for item in items]
-    except (KeyError, TypeError, ValueError) as exc:  # pydantic ValidationError is a ValueError
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:  # pydantic ValidationError is a ValueError
         raise SourceError(SOURCE, f"unexpected response: {exc!r}") from exc
     return [p for p in parsed if p is not None]
 

@@ -142,6 +142,31 @@ def test_candidates_and_suggestions_do_not_depend_on_team_order():
     assert c.value.suggestions == d.value.suggestions
 
 
+def _tla_trap_resolver() -> TeamResolver:
+    teams = [
+        *(t for t in TEAMS if t.name in {"Arsenal FC", "Chelsea FC", "Manchester City FC"}),
+        Team(id=95, name="Valencia CF", short_name="Valencia", tla="VAL"),
+        Team(id=328, name="Burnley FC", short_name="Burnley", tla="BUR"),
+    ]
+    return TeamResolver(teams, Aliases())
+
+
+@pytest.mark.parametrize("query", ["valladolid", "burton albion"])
+def test_a_tla_substring_never_confidently_resolves_to_the_wrong_team(query):
+    resolver = _tla_trap_resolver()
+    with pytest.raises((TeamNotFound, AmbiguousTeam)) as e:
+        resolver.resolve_query(query)
+    if isinstance(e.value, AmbiguousTeam):
+        assert len(e.value.candidates) >= 1  # offered for confirmation, not accepted silently
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"), [("val", "Valencia CF"), ("BUR", "Burnley FC"), ("mci", "Manchester City FC")]
+)
+def test_exact_tla_still_resolves(query, expected):
+    assert _tla_trap_resolver().resolve_query(query).name == expected
+
+
 def test_unknown(resolver):
     with pytest.raises(TeamNotFound) as e:
         resolver.resolve_query("xyzzy")
@@ -157,6 +182,10 @@ def test_unknown(resolver):
         ("arsenal vs chelsea", ("arsenal", "chelsea")),
         ("arsenal VS. chelsea", ("arsenal", "chelsea")),
         ("Arsenal V Chelsea", ("Arsenal", "Chelsea")),
+        ("Arsenal v. Chelsea", ("Arsenal", "Chelsea")),
+        ("Arsenal – Chelsea", ("Arsenal", "Chelsea")),
+        ("Arsenal — Chelsea", ("Arsenal", "Chelsea")),
+        ("Paris Saint-Germain – Lyon", ("Paris Saint-Germain", "Lyon")),
         ("Arsenal - Chelsea", ("Arsenal", "Chelsea")),
         ("Brighton & Hove Albion v Real Betis", ("Brighton & Hove Albion", "Real Betis")),
         ("Paris Saint-Germain v Lyon", ("Paris Saint-Germain", "Lyon")),

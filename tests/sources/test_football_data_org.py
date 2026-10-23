@@ -245,3 +245,24 @@ def test_unexpected_payload_raises_source_error(make_rig):
     rig = make_rig(lambda r: {"matches": [{"id": 1}]})
     with pytest.raises(SourceError, match="unexpected response"):
         rig.fdo.team_upcoming(57, date(2026, 10, 20), date(2026, 11, 20))
+
+
+@pytest.mark.parametrize("payload", [[], "oops", 7, True])
+def test_non_object_json_raises_source_error(make_rig, payload):
+    rig = make_rig(lambda r: payload)
+    with pytest.raises(SourceError, match="unexpected response"):
+        rig.fdo.teams(Competition.PL)
+    with pytest.raises(SourceError, match="unexpected response"):
+        rig.fdo.team_upcoming(57, date(2026, 10, 20), date(2026, 11, 20))
+    with pytest.raises(SourceError, match="unexpected response"):
+        rig.fdo.team_results(57, date(2026, 9, 1), date(2026, 10, 20))
+    with pytest.raises(SourceError, match="unexpected response"):
+        rig.fdo.matches_by_ids([1])
+
+
+def test_matches_with_non_object_teams_raise_source_error(make_rig):
+    match = copy.deepcopy(load("fdo_team_matches.json")["matches"][1])
+    match["homeTeam"] = "Arsenal"
+    rig = make_rig(lambda r: {"matches": [match]})
+    with pytest.raises(SourceError, match="unexpected response"):
+        rig.fdo.team_upcoming(57, date(2026, 10, 20), date(2026, 11, 20))

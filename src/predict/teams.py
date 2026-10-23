@@ -13,7 +13,7 @@ from rapidfuzz import fuzz
 from predict.domain import Team
 from predict.errors import AmbiguousTeam, SourceError, TeamNotFound
 
-QUERY_SPLIT = re.compile(r"\s+(?:v|vs\.?|-)\s+", re.IGNORECASE)
+QUERY_SPLIT = re.compile(r"\s+(?:v\.?|vs\.?|-|–|—)\s+", re.IGNORECASE)
 
 QUERY_ACCEPT = 85.0  # a clear match
 QUERY_LEAD = 5.0  # ... that leads the runner-up by this much
@@ -40,7 +40,7 @@ def normalize(name: str) -> str:
 
 
 def parse_query(text: str) -> tuple[str, str | None]:
-    """Split "A v B" / "A vs B" / "A - B" into its two teams; a single team gives (team, None)."""
+    """Split "A v B" / "A v. B" / "A vs B" / "A - B" (hyphen, en or em dash); one team gives (team, None)."""
     parts = QUERY_SPLIT.split(text.strip(), maxsplit=1)
     if len(parts) == 2:
         return parts[0].strip(), parts[1].strip()
@@ -76,13 +76,19 @@ def _name_fields(team: Team) -> tuple[str, ...]:
     return tuple(dict.fromkeys(f for f in (normalize(team.name), normalize(team.short_name)) if f))
 
 
-def _query_fields(team: Team) -> tuple[str, ...]:
-    extra = normalize(team.tla) if team.tla else ""
-    return tuple(dict.fromkeys((*_name_fields(team), *([extra] if extra else []))))
-
-
 def _score(query: str, fields: Iterable[str]) -> float:
     return max((fuzz.WRatio(query, f) for f in fields), default=0.0)
+
+
+def _source_score(query: str, team: Team) -> float:
+    return _score(query, _name_fields(team))
+
+
+def _query_score(query: str, team: Team) -> float:
+    """Fuzzy over name and short name; the tla only counts on an exact match (fuzzy tla hits are false friends)."""
+    if team.tla and query == normalize(team.tla):
+        return 100.0
+    return _score(query, _name_fields(team))
 
 
 class TeamResolver:
@@ -100,7 +106,7 @@ class TeamResolver:
         if len(aliased) > 1:
             raise AmbiguousTeam(text, sorted(aliased, key=lambda t: t.name))
 
-        ranked = self._rank(query, _query_fields)
+        ranked = self._rank(query, _query_score)
         top_score = ranked[0][0] if ranked else 0.0
         runner_up = ranked[1][0] if len(ranked) > 1 else 0.0
         if top_score >= QUERY_ACCEPT and top_score - runner_up >= QUERY_LEAD:
@@ -149,14 +155,14 @@ class TeamResolver:
         canonical = self._aliases.source_override(source, name)
         if canonical is not None:
             return self._by_name.get(normalize(canonical))
-        ranked = self._rank(normalize(name), _name_fields)
+        ranked = self._rank(normalize(name), _source_score)
         if not ranked:
             return None
         runner_up = ranked[1][0] if len(ranked) > 1 else 0.0
         top_score, top = ranked[0]
         return top if top_score >= SOURCE_ACCEPT and top_score - runner_up >= SOURCE_LEAD else None
 
-    def _rank(self, query: str, fields_of: Callable[[Team], tuple[str, ...]]) -> list[tuple[float, Team]]:
+    def _rank(self, query: str, score: Callable[[str, Team], float]) -> list[tuple[float, Team]]:
         """Teams by fuzzy score, best first, ties by name so the order never depends on input order."""
-        scored = [(_score(query, fields_of(t)), t) for t in self._teams]
+        scored = [(score(query, t), t) for t in self._teams]
         return sorted(scored, key=lambda st: (-st[0], st[1].name))

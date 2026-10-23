@@ -71,6 +71,25 @@ def test_get_json_parses(h):
     assert h.http.get_json("https://a.test/x", ttl=TTL) == {"ok": True}
 
 
+def test_get_json_rejects_invalid_json_without_caching():
+    h = Harness(body="<html>maintenance</html>")
+    with pytest.raises(SourceError) as e:
+        h.http.get_json("https://api.test/x", ttl=TTL)
+    assert str(e.value) == "api.test: invalid JSON"
+    assert h.store.cache_latest("https://api.test/x") is None
+    h.body = '{"ok": true}'
+    assert h.http.get_json("https://api.test/x", ttl=TTL) == {"ok": True}
+    assert len(h.requests) == 2
+    h.store.close()
+
+
+def test_get_json_rejects_invalid_json_already_cached_by_get_text(h):
+    h.body = "not json"
+    assert h.http.get_text("https://a.test/x", ttl=TTL) == "not json"
+    with pytest.raises(SourceError, match="invalid JSON"):
+        h.http.get_json("https://a.test/x", ttl=TTL)
+
+
 def test_non_2xx_raises_source_error_and_is_not_cached():
     h = Harness(status=502, body="bad gateway")
     with pytest.raises(SourceError, match="502") as e:

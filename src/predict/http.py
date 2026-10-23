@@ -39,20 +39,7 @@ class CachedHttp:
         headers: dict | None = None,
         min_interval: float = 0.0,
     ) -> str:
-        key = _cache_key(url, params)
-        cached = self._store.cache_get(key, ttl, self._now())
-        if cached is not None:
-            return cached
-        host = httpx.URL(url).host
-        self._throttle(host, min_interval)
-        try:
-            response = self._client.get(url, params=params, headers=headers)
-        except httpx.HTTPError as exc:
-            raise SourceError(host, str(exc) or type(exc).__name__) from exc
-        if not response.is_success:
-            raise SourceError(host, f"HTTP {response.status_code}")
-        self._store.cache_put(key, response.text, self._now())
-        return response.text
+        return self._get(url, ttl, params, headers, min_interval, parse=str)
 
     def get_json(
         self,
@@ -63,7 +50,34 @@ class CachedHttp:
         headers: dict | None = None,
         min_interval: float = 0.0,
     ) -> Any:
-        return json.loads(self.get_text(url, ttl=ttl, params=params, headers=headers, min_interval=min_interval))
+        """Like get_text, but the body must be JSON; anything else raises SourceError and is not cached."""
+        return self._get(url, ttl, params, headers, min_interval, parse=json.loads)
+
+    def _get[T](
+        self,
+        url: str,
+        ttl: timedelta,
+        params: dict | None,
+        headers: dict | None,
+        min_interval: float,
+        *,
+        parse: Callable[[str], T],
+    ) -> T:
+        key = _cache_key(url, params)
+        host = httpx.URL(url).host
+        cached = self._store.cache_get(key, ttl, self._now())
+        if cached is not None:
+            return _parsed(host, cached, parse)
+        self._throttle(host, min_interval)
+        try:
+            response = self._client.get(url, params=params, headers=headers)
+        except httpx.HTTPError as exc:
+            raise SourceError(host, str(exc) or type(exc).__name__) from exc
+        if not response.is_success:
+            raise SourceError(host, f"HTTP {response.status_code}")
+        value = _parsed(host, response.text, parse)  # validate before caching a bad body for the whole ttl
+        self._store.cache_put(key, response.text, self._now())
+        return value
 
     def _throttle(self, host: str, min_interval: float) -> None:
         last = self._last_request.get(host)
@@ -72,6 +86,13 @@ class CachedHttp:
             if wait > 0:
                 self._sleep(wait)
         self._last_request[host] = self._now()
+
+
+def _parsed[T](host: str, body: str, parse: Callable[[str], T]) -> T:
+    try:
+        return parse(body)
+    except ValueError as exc:  # json.JSONDecodeError
+        raise SourceError(host, "invalid JSON") from exc
 
 
 def _cache_key(url: str, params: dict | None) -> str:
