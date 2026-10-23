@@ -48,8 +48,20 @@ def test_form_uses_goals_when_no_xg():
 def test_form_uses_only_latest_six_and_none_without_records():
     recent = [rec(1, 9, 100, 0, day=1)] + [rec(1, 9, 3, 0, day=d) for d in range(2, 8)]
     f = form_rating(1, recent, {Competition.PL: 1.5})
-    assert f.attack == pytest.approx(2.0) and f.concede == pytest.approx(0.0)
+    assert f.attack == pytest.approx(2.0) and f.concede == pytest.approx(0.25)  # floored from 0
     assert form_rating(5, recent, {Competition.PL: 1.5}) is None
+
+
+def test_form_floors_attack_so_combine_stays_positive():
+    f = form_rating(1, [rec(1, 9, 0, 1, day=1)], {Competition.PL: 1.5})
+    assert f.attack == 0.25 and f.concede == pytest.approx(1 / 1.5)
+    c = combine(TeamRating(attack=1.0, concede=1.0), f)
+    assert c.attack > 0 and c.attack == pytest.approx(0.25**0.3)
+
+
+def test_form_floor_is_a_keyword():
+    f = form_rating(1, [rec(1, 9, 0, 1, day=1)], {Competition.PL: 1.5}, floor=0.5)
+    assert f.attack == 0.5
 
 
 def test_combine_geometric():

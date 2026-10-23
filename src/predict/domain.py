@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 _DISPLAY = {
     "PL": "Premier League",
@@ -112,7 +112,7 @@ class Match(_Frozen):
     competition: Competition
     home: Team
     away: Team
-    kickoff: datetime
+    kickoff: AwareDatetime
     stage: str | None = None
     neutral: bool = False
 
@@ -123,7 +123,7 @@ class Result(_Frozen):
 
 
 class MatchRecord(_Frozen):
-    kickoff: datetime
+    kickoff: AwareDatetime
     competition: Competition
     home_name: str
     away_name: str

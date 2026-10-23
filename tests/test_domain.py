@@ -1,6 +1,10 @@
 from datetime import UTC, datetime
 
-from predict.domain import LEAGUES, MARKET_IDS, Competition, season_of
+import pytest
+from pydantic import ValidationError
+
+from predict.domain import LEAGUES, MARKET_IDS, Competition, Match, MatchRecord, season_of
+from tests.helpers import make_team
 
 
 def test_season_of():
@@ -24,3 +28,13 @@ def test_competition_properties():
 def test_market_ids_in_display_order():
     assert len(MARKET_IDS) == 11 and MARKET_IDS[:2] == ("result", "btts")
     assert MARKET_IDS[-1] == "team:away:2.5"
+
+
+def test_kickoffs_must_be_timezone_aware():
+    naive = datetime(2026, 8, 1, 15, 0)
+    with pytest.raises(ValidationError):
+        Match(id=1, competition=Competition.PL, home=make_team(1, "A"), away=make_team(2, "B"), kickoff=naive)
+    with pytest.raises(ValidationError):
+        MatchRecord(
+            kickoff=naive, competition=Competition.PL, home_name="A", away_name="B", home_goals=1, away_goals=0
+        )

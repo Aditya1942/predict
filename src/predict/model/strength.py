@@ -5,6 +5,7 @@ from collections.abc import Mapping
 
 from predict.domain import Competition, LeagueBase, MatchRecord, TeamRating
 from predict.params import (
+    FORM_FLOOR,
     FORM_MATCHES,
     FORM_WEIGHT,
     FORM_WEIGHTS,
@@ -103,9 +104,16 @@ def season_rating(
 
 
 def form_rating(
-    team_id: int, recent: list[MatchRecord], comp_avg: Mapping[Competition, float]
+    team_id: int,
+    recent: list[MatchRecord],
+    comp_avg: Mapping[Competition, float],
+    *,
+    floor: float = FORM_FLOOR,
 ) -> TeamRating | None:
-    """Recency-weighted attack and concede over the team's latest matches, or None without any."""
+    """Recency-weighted attack and concede over the team's latest matches, or None without any.
+
+    Both are floored so a run of clean sheets or blanks cannot zero out a Projected Goals side.
+    """
     mine = sorted((r for r in recent if _involves(r, team_id)), key=lambda r: r.kickoff, reverse=True)
     mine = mine[:FORM_MATCHES]
     if not mine:
@@ -118,7 +126,7 @@ def form_rating(
         avg = comp_avg[record.competition]
         attack += weight * perf_for / avg
         concede += weight * perf_against / avg
-    return TeamRating(attack=attack / total, concede=concede / total)
+    return TeamRating(attack=max(floor, attack / total), concede=max(floor, concede / total))
 
 
 def combine(season: TeamRating, form: TeamRating | None, *, weight: float = FORM_WEIGHT) -> TeamRating:
