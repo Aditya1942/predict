@@ -246,6 +246,14 @@ def test_full_view_shows_only_the_top_three_reasons_per_team():
     assert [name for name in "ABCD" if f"{name}: " in text] == ["B", "C", "D"]
 
 
+def test_full_view_leaves_out_news_factors_that_would_show_as_zero_percent():
+    impacts = [impact(player="Saka", attack=1.002, concede=1.0)]
+    text = full_view(prediction(impacts=impacts, news_applied=True), IST)
+    assert "Saka" not in text
+    assert "+0%" not in text
+    assert "nothing that changes the numbers" in text
+
+
 def test_full_view_without_news_factors_says_so():
     text = full_view(prediction(news_applied=True), IST)
     assert "Team News" in text

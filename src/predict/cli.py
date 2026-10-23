@@ -24,6 +24,11 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _status(message: str) -> None:
+    """A progress line on stderr, so stdout stays the Prediction."""
+    print(message, file=sys.stderr, flush=True)
+
+
 def _ask(prompt: str) -> str | None:
     """One line from stdin (prompts go to stderr so stdout stays the Prediction); None at end of input."""
     print(prompt, end="", file=sys.stderr, flush=True)
@@ -63,7 +68,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def _missing_token(exc: ValidationError) -> str:
     if any(error["loc"] == ("football_data_org_token",) for error in exc.errors()):
-        return "FOOTBALL_DATA_ORG_TOKEN is not set. Put it in .env (see .env.example) or the environment."
+        return "FOOTBALL_DATA_ORG_TOKEN is not set. Put it in ~/.predict/.env (see .env.example) or the environment."
     return f"Invalid settings: {exc}"
 
 
@@ -91,7 +96,9 @@ def main(argv: list[str] | None = None, services: Services | None = None) -> int
             except ValidationError as exc:
                 print(_missing_token(exc), file=sys.stderr)
                 return 1
-            services = build(settings, _utc_now)
+            if options is not None:
+                _status("Working… (first run downloads team lists, about 1 minute)")
+            services = build(settings, _utc_now, progress=_status)
         _settle(services)
         if options is None:
             print(log_view(summarize(services.store)))

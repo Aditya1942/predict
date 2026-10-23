@@ -100,11 +100,14 @@ def _change(multiplier: float) -> str:
 def _print_team_news(console: Console, p: Prediction) -> None:
     match = p.match
     console.print(Text("Team News", style="bold"))
-    if not p.impacts:
+    sides = [
+        (team, opponent, top_reasons(p.impacts, side))
+        for side, team, opponent in (("home", match.home, match.away), ("away", match.away, match.home))
+    ]
+    if not any(reasons for _, _, reasons in sides):
         console.print(Text("  nothing that changes the numbers"))
         return
-    for side, team, opponent in (("home", match.home, match.away), ("away", match.away, match.home)):
-        reasons = top_reasons(p.impacts, side)
+    for team, opponent, reasons in sides:
         if not reasons:
             continue
         console.print(Text(team.short_name, style="bold"))

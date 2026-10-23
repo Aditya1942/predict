@@ -384,6 +384,46 @@ def test_no_query_is_a_usage_error(capsys, services_for):
     assert "usage" in capsys.readouterr().err.lower()
 
 
+def own_services(monkeypatch, tmp_path, services, capsys) -> list[str]:
+    """Lets `main` build its own services with `build` replaced; the list gets what was on stderr when it was called."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("FOOTBALL_DATA_ORG_TOKEN", "token")
+    before_build: list[str] = []
+
+    def fake_build(settings, now, *, progress):
+        before_build.append(capsys.readouterr().err)
+        progress("Researching team news…")  # what the researcher does when it starts
+        return services
+
+    monkeypatch.setattr(cli, "build", fake_build)
+    return before_build
+
+
+def test_a_run_says_it_is_working_before_the_slow_build_and_shows_research_progress(
+    monkeypatch, tmp_path, capsys, services_for
+):
+    services = services_for([make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3))])
+    before_build = own_services(monkeypatch, tmp_path, services, capsys)
+    assert main(["Arsenal v Chelsea"]) == 0
+    captured = capsys.readouterr()
+    assert before_build == ["Working… (first run downloads team lists, about 1 minute)\n"]
+    assert captured.err == "Researching team news…\n"
+    assert "Chelsea v Arsenal" in captured.out
+
+
+def test_log_does_not_say_it_is_working(monkeypatch, tmp_path, capsys, services_for):
+    before_build = own_services(monkeypatch, tmp_path, services_for([]), capsys)
+    assert main(["log"]) == 0
+    assert before_build == [""]
+
+
+def test_a_run_with_services_given_prints_no_progress(capsys, services_for):
+    services = services_for([make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3))])
+    assert main(["Arsenal v Chelsea"], services) == 0
+    assert capsys.readouterr().err == ""
+
+
 def test_help_works_without_a_token(monkeypatch, tmp_path, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("FOOTBALL_DATA_ORG_TOKEN", raising=False)

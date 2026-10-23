@@ -56,6 +56,7 @@ JEV = "jev-1.13.0"
 
 
 def predictor(matches, store, *, rater=None, now=NOW, odds=None, dossiers=None, jev=None) -> Predictor:
+    """`now` is a fixed time, or a callable for a clock that moves."""
     return Predictor(
         FakeFdo(matches),
         rater or StubRater(),
@@ -66,7 +67,7 @@ def predictor(matches, store, *, rater=None, now=NOW, odds=None, dossiers=None, 
         jev,
         CLAUDE,
         JEV,
-        now=lambda: now,
+        now=now if callable(now) else lambda: now,
     )
 
 
@@ -160,6 +161,33 @@ def test_predict_after_kickoff_is_locked(store):
     assert caught.value.match == match
     assert "locked" in str(caught.value)
     assert store.all_predictions() == []
+
+
+def test_kickoff_passing_during_news_locks_the_prediction_and_saves_nothing(store):
+    """A slow Claude run can finish after kickoff; the lock is checked again just before saving."""
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(1))
+    clock = [NOW]
+
+    class SlowDossiers(FakeDossiers):
+        def get(self, match, *, fresh, model):
+            clock[0] = match.kickoff + timedelta(minutes=1)  # the research took until after kickoff
+            return super().get(match, fresh=fresh, model=model)
+
+    dossiers = SlowDossiers(make_dossier(created_at=NOW, model=CLAUDE))
+    with pytest.raises(PredictionLocked) as caught:
+        predictor([match], store, now=lambda: clock[0], dossiers=dossiers, jev=StubJev()).predict(match)
+    assert caught.value.match == match
+    assert store.all_predictions() == []
+
+
+def test_a_prediction_is_stamped_when_it_is_saved_not_when_the_run_started(store):
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(1))
+    later = NOW + timedelta(minutes=5)
+    times = iter([NOW, later])
+    prediction = predictor([match], store, now=lambda: next(times)).predict(match, share=True)
+    assert prediction.created_at == later
+    assert prediction.shared_at == later
+    assert store.predictions_for_match(match.id)[0].created_at == later
 
 
 def test_predict_at_kickoff_is_locked(store):

@@ -247,3 +247,9 @@ def test_snapshots_are_cached_per_match(store):
 def test_missing_credits_header_is_none(store):
     server = Server(remaining="n/a")
     assert odds_api(server, store).snapshot(MATCH).credits_remaining is None
+
+
+@pytest.mark.parametrize("remaining", ["inf", "-inf", "nan"])
+def test_a_credits_header_that_is_not_a_finite_number_is_none(store, remaining):
+    server = Server(remaining=remaining)
+    assert odds_api(server, store).snapshot(MATCH).credits_remaining is None

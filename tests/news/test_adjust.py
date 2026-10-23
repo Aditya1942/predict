@@ -74,3 +74,14 @@ def test_top_reasons_n():
     assert len(top_reasons(imps, "home")) == 3
     assert [i.factor.summary for i in top_reasons(imps, "home", n=1)] == ["5"]
     assert top_reasons(imps, "away") == []
+
+
+def test_top_reasons_leave_out_factors_that_change_nothing_worth_showing():
+    imps = [
+        impact(attack=1.0, concede=1.0, summary="none"),
+        impact(attack=0.997, concede=1.004, summary="negligible"),
+        impact(attack=1.0, concede=1.006, summary="just enough defence"),
+        impact(attack=0.99, summary="small"),
+    ]
+    assert [i.factor.summary for i in top_reasons(imps, "home")] == ["small", "just enough defence"]
+    assert top_reasons([impact(attack=1.003, concede=0.998)], "home") == []

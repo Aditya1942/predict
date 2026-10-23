@@ -327,6 +327,13 @@ def test_researcher_returns_the_structured_output_as_a_dossier(sdk):
     assert got.away.factors[0].player == "Palmer"
 
 
+def test_researcher_says_when_research_starts(sdk):
+    sdk.messages = [result_message(structured_output=output())]
+    said: list[str] = []
+    ClaudeResearcher(now=lambda: NOW, progress=said.append).research(MATCH, HINTS, "claude-opus-5-5")
+    assert said == ["Researching team news…"]
+
+
 def test_researcher_sends_the_prompt_and_the_search_only_options(sdk):
     sdk.messages = [result_message(structured_output=output())]
     run()

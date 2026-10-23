@@ -5,6 +5,8 @@ from math import prod
 from predict.domain import FactorImpact, ProjectedGoals, Side
 from predict.params import NEWS_CAP
 
+_NEGLIGIBLE = 0.005  # a multiplier closer to 1 than this rounds to a "+0%" change, so it is not worth listing
+
 
 def apply_impacts(
     base: ProjectedGoals, impacts: list[FactorImpact], *, cap: tuple[float, float] = NEWS_CAP
@@ -21,7 +23,11 @@ def apply_impacts(
     return ProjectedGoals(home=base.home * factor("home", "away"), away=base.away * factor("away", "home"))
 
 
+def _effect(impact: FactorImpact) -> float:
+    return max(abs(impact.attack_mult - 1), abs(impact.concede_mult - 1))
+
+
 def top_reasons(impacts: list[FactorImpact], side: Side, n: int = 3) -> list[FactorImpact]:
-    """The side's `n` News Factors that move a goal projection the most, largest first."""
-    ours = [i for i in impacts if i.side == side]
-    return sorted(ours, key=lambda i: max(abs(i.attack_mult - 1), abs(i.concede_mult - 1)), reverse=True)[:n]
+    """The side's `n` News Factors that move a goal projection the most, largest first; negligible ones are left out."""
+    ours = [i for i in impacts if i.side == side and round(_effect(i), 6) >= _NEGLIGIBLE]
+    return sorted(ours, key=_effect, reverse=True)[:n]

@@ -123,7 +123,7 @@ def _title(match: Match) -> str:
 def _credits(value: str | None) -> int | None:
     try:
         return int(float(value)) if value is not None else None
-    except ValueError:
+    except (ValueError, OverflowError):  # not a number, or "inf"
         return None
 
 

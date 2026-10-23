@@ -6,10 +6,11 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_HOME = Path.home() / ".predict"
+ENV_FILES = ("~/.predict/.env", ".env")  # later wins, so a `.env` in the working directory overrides the home one
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=ENV_FILES, env_file_encoding="utf-8", extra="ignore")
 
     football_data_org_token: str
     odds_api_key: str = ""

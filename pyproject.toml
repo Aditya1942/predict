@@ -7,7 +7,6 @@ dependencies = [
     "httpx",
     "pydantic>=2",
     "pydantic-settings",
-    "typer",
     "rich",
     "rapidfuzz",
     "numpy",

@@ -119,15 +119,20 @@ class Predictor:
         rated = self._ratings.rate_match(match)
         projected, news = self._news(match, rated.projected, now, fresh=fresh, model=model or self._claude_model)
         probabilities = market_probabilities(scoreline_matrix(projected.home, projected.away))
+        bookmaker = self._bookmaker_fields(match, probabilities)
+        # Research can run for minutes, so check the lock again now and stamp the Prediction with this time.
+        saved_at = self._now().astimezone(UTC)
+        if saved_at >= match.kickoff:
+            raise PredictionLocked(match)
         prediction = Prediction(
             match=match,
-            created_at=now,
+            created_at=saved_at,
             projected_base=rated.projected,
             projected=projected,
             probabilities=probabilities,
-            shared_at=now if share else None,
+            shared_at=saved_at if share else None,
             **news,
-            **self._bookmaker_fields(match, probabilities),
+            **bookmaker,
         )
         return prediction.model_copy(update={"id": self._store.save_prediction(prediction)})
 

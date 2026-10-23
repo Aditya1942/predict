@@ -91,11 +91,14 @@ def inline_refs(schema: dict) -> dict:
 class ClaudeResearcher:
     """Researches a Match with Claude on the subscription login: web search and fetch only, structured output."""
 
-    def __init__(self, *, now: Callable[[], datetime]) -> None:
+    def __init__(self, *, now: Callable[[], datetime], progress: Callable[[str], None] = lambda message: None) -> None:
+        """`progress` is told when a slow research run starts, so the CLI can say so."""
         self._now = now
+        self._progress = progress
 
     def research(self, match: Match, hints: dict[Side, list[str]], model: str) -> MatchDossier:
         now = self._now()
+        self._progress("Researching team news…")
         options = ClaudeAgentOptions(
             model=model,
             tools=list(TOOLS),

@@ -41,8 +41,13 @@ class Services:
     jev: TypeSafeJev | None = None
 
 
-def build(settings: Settings, now: Callable[[], datetime]) -> Services:
-    """Wire everything up. Fetches every Competition's team list (cached for a day) for the resolver."""
+def build(
+    settings: Settings, now: Callable[[], datetime], *, progress: Callable[[str], None] = lambda message: None
+) -> Services:
+    """Wire everything up. Fetches every Competition's team list (cached for a day) for the resolver.
+
+    `progress` is told in words when a slow step (Claude research) starts.
+    """
     store = Store(settings.predict_home / "predict.db")
     client = httpx.Client(timeout=_TIMEOUT, follow_redirects=True)
 
@@ -57,7 +62,7 @@ def build(settings: Settings, now: Callable[[], datetime]) -> Services:
         resolver = TeamResolver(teams, Aliases.load())
         ratings = RatingsService(fdo, Understat(http), ClubElo(http, store, now=now), resolver, now=now)
         odds = OddsApi(client, store, settings.odds_api_key, resolver, now=now) if settings.odds_api_key else None
-        dossiers = DossierService(ClaudeResearcher(now=now), Fpl(http), resolver, store, now=now)
+        dossiers = DossierService(ClaudeResearcher(now=now, progress=progress), Fpl(http), resolver, store, now=now)
         jev = TypeSafeJev(settings.typesafe_api_key, settings.jev_model) if settings.typesafe_api_key else None
         predictor = Predictor(
             fdo, ratings, resolver, store, odds, dossiers, jev, settings.claude_model, settings.jev_model, now=now

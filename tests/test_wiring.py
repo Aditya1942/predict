@@ -6,6 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from predict import wiring
 from predict.config import Settings
 from predict.errors import SourceError
 from predict.news.scoring import TypeSafeJev
@@ -86,6 +87,20 @@ def test_build_wires_jev_only_when_a_key_is_set(monkeypatch, tmp_path):
     finally:
         without.close()
         with_key.close()
+
+
+def test_build_hands_the_progress_callback_to_the_researcher(monkeypatch, tmp_path):
+    teams = json.loads((FIXTURES / "fdo_teams_pl.json").read_text())
+    real_client = httpx.Client
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=teams))
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: real_client(transport=transport, **kwargs))
+    given: dict = {}
+    monkeypatch.setattr(wiring, "ClaudeResearcher", lambda **kwargs: given.update(kwargs))
+    progress = lambda message: None  # noqa: E731
+    settings = Settings(_env_file=None, football_data_org_token="t", predict_home=tmp_path)
+    ticks = itertools.count()
+    build(settings, lambda: START + timedelta(seconds=10 * next(ticks)), progress=progress).close()
+    assert given["progress"] is progress
 
 
 def test_build_propagates_a_source_failure(monkeypatch, tmp_path):
