@@ -13,7 +13,17 @@ from predict.pipeline import Predictor
 from predict.store import Store
 from predict.teams import Aliases, TeamResolver
 from predict.wiring import Services
-from tests.helpers import FakeFdo, StubRater, make_match, make_team, system_zone
+from tests.helpers import (
+    FakeDossiers,
+    FakeFdo,
+    StubJev,
+    StubRater,
+    make_dossier,
+    make_factor,
+    make_match,
+    make_team,
+    system_zone,
+)
 
 NOW = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)
 
@@ -25,12 +35,20 @@ REAL_SOCIEDAD = make_team(12, "Real Sociedad de Fútbol")
 TEAMS = [ARSENAL, CHELSEA, REAL_MADRID, REAL_BETIS, REAL_SOCIEDAD]
 
 
+@pytest.fixture(autouse=True)
+def clipboard(monkeypatch):
+    """Stands in for pbcopy, so a test never touches the real clipboard. Holds the texts copied."""
+    copied: list[str] = []
+    monkeypatch.setattr(cli, "copy_to_clipboard", lambda text: copied.append(text) or True)
+    return copied
+
+
 @pytest.fixture
 def services_for():
     """Builds Services over fakes; every Store is closed after the test."""
     stores: list[Store] = []
 
-    def make(matches, *, now=NOW, clock=None, rater=None) -> Services:
+    def make(matches, *, now=NOW, clock=None, rater=None, dossiers=None, jev=None) -> Services:
         store = Store(":memory:")
         stores.append(store)
         fdo = FakeFdo(matches)
@@ -41,7 +59,18 @@ def services_for():
             fdo=fdo,
             resolver=resolver,
             ratings=ratings,
-            predictor=Predictor(fdo, ratings, resolver, store, None, now=clock or (lambda: now)),
+            predictor=Predictor(
+                fdo,
+                ratings,
+                resolver,
+                store,
+                None,
+                dossiers or FakeDossiers(make_dossier(created_at=now, model="claude-opus-5-5")),
+                jev,
+                "claude-opus-5-5",
+                "jev-1.13.0",
+                now=clock or (lambda: now),
+            ),
         )
 
     yield make
@@ -67,6 +96,86 @@ def test_query_may_be_one_quoted_argument_and_flags_may_come_anywhere(capsys, se
     services = services_for([make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3))])
     assert main(["--fresh", "Arsenal v Chelsea", "--model", "claude-sonnet-5-5", "--share"], services) == 0
     assert "Chelsea v Arsenal" in capsys.readouterr().out
+
+
+def test_share_prints_the_share_text_copies_it_and_marks_the_prediction_shared(capsys, services_for, clipboard):
+    services = services_for([make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3), id=5)])
+    assert main(["Arsenal", "v", "Chelsea", "--share"], services) == 0
+    captured = capsys.readouterr()
+    shared = services.store.all_predictions()[0].shared_at
+    assert shared == NOW
+    assert captured.out.index("Projected Goals") < captured.out.index("⚽ Chelsea v Arsenal")
+    assert len(clipboard) == 1
+    assert clipboard[0] in captured.out
+    assert clipboard[0].startswith("⚽ Chelsea v Arsenal · Premier League · ")
+    assert "copied" in captured.err.lower()
+
+
+def test_without_share_nothing_is_printed_copied_or_marked(capsys, services_for, clipboard):
+    services = services_for([make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3))])
+    assert main(["Arsenal v Chelsea"], services) == 0
+    assert "⚽" not in capsys.readouterr().out
+    assert clipboard == []
+    assert services.store.all_predictions()[0].shared_at is None
+
+
+def test_share_still_prints_when_there_is_no_clipboard(monkeypatch, capsys, services_for):
+    monkeypatch.setattr(cli, "copy_to_clipboard", lambda text: False)
+    services = services_for([make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3))])
+    assert main(["Arsenal v Chelsea", "--share"], services) == 0
+    captured = capsys.readouterr()
+    assert "⚽ Chelsea v Arsenal" in captured.out
+    assert "pbcopy" in captured.err
+    assert services.store.all_predictions()[0].shared_at == NOW
+
+
+def test_fresh_and_model_reach_the_dossier_service(services_for):
+    match = make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3))
+    dossiers = FakeDossiers(make_dossier(created_at=NOW, model="claude-sonnet-5-5"))
+    services = services_for([match], dossiers=dossiers, jev=StubJev())
+    assert main(["Arsenal v Chelsea", "--fresh", "--model", "claude-sonnet-5-5"], services) == 0
+    assert main(["Arsenal v Chelsea"], services) == 0
+    assert [(fresh, model) for _, fresh, model in dossiers.calls] == [
+        (True, "claude-sonnet-5-5"),
+        (False, "claude-opus-5-5"),
+    ]
+
+
+def test_news_is_shown_in_the_full_view(capsys, services_for):
+    saka = make_factor("absence", "Saka", sources=("https://example.com/saka",))
+    dossier = make_dossier(away=(saka,), created_at=NOW, model="claude-opus-5-5")
+    major = [0.0, 0.0, 0.0, 1.0]
+    jev = StubJev({"away0_attack": major, "away0_defence": major})
+    services = services_for(
+        [make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3))], dossiers=FakeDossiers(dossier), jev=jev
+    )
+    assert main(["Arsenal v Chelsea"], services) == 0
+    out = capsys.readouterr().out
+    assert "Team News" in out
+    assert "Saka: Out for three weeks with a hamstring injury. → Arsenal goals -15%" in out
+    assert "news applied ✓" in out
+
+
+def test_news_not_applied_without_a_jev_key_is_said_in_the_footer(capsys, services_for):
+    services = services_for([make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3))])
+    assert main(["Arsenal v Chelsea"], services) == 0
+    assert "⚠️ news not applied (no TYPESAFE_API_KEY set)" in capsys.readouterr().out
+
+
+def test_an_anthropic_api_key_in_the_environment_is_warned_about(monkeypatch, capsys, services_for):
+    services = services_for([make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3))])
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    assert main(["Arsenal v Chelsea"], services) == 0
+    captured = capsys.readouterr()
+    assert "ANTHROPIC_API_KEY is set" in captured.err
+    assert "ANTHROPIC_API_KEY" not in captured.out
+
+
+def test_no_warning_without_an_anthropic_api_key(monkeypatch, capsys, services_for):
+    services = services_for([make_match(CHELSEA, ARSENAL, kickoff=NOW + timedelta(days=3))])
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert main(["Arsenal v Chelsea"], services) == 0
+    assert "ANTHROPIC_API_KEY" not in capsys.readouterr().err
 
 
 def test_ambiguous_team_prompts_a_numbered_choice(monkeypatch, capsys, services_for):

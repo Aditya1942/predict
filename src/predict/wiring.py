@@ -9,10 +9,13 @@ import httpx
 from predict.config import Settings
 from predict.domain import Competition
 from predict.http import CachedHttp
+from predict.news.research import ClaudeResearcher, DossierService
+from predict.news.scoring import TypeSafeJev
 from predict.pipeline import Predictor
 from predict.ratings import RatingsService
 from predict.sources.clubelo import ClubElo
 from predict.sources.football_data_org import FootballDataOrg
+from predict.sources.fpl import Fpl
 from predict.sources.odds_api import OddsApi
 from predict.sources.understat import Understat
 from predict.store import Store
@@ -34,6 +37,7 @@ class Services:
     predictor: Predictor
     close: Callable[[], None] = _nothing
     odds: OddsApi | None = None
+    jev: TypeSafeJev | None = None
 
 
 def build(settings: Settings, now: Callable[[], datetime]) -> Services:
@@ -52,10 +56,21 @@ def build(settings: Settings, now: Callable[[], datetime]) -> Services:
         resolver = TeamResolver(teams, Aliases.load())
         ratings = RatingsService(fdo, Understat(http), ClubElo(http, store, now=now), resolver, now=now)
         odds = OddsApi(client, store, settings.odds_api_key, resolver, now=now) if settings.odds_api_key else None
-        predictor = Predictor(fdo, ratings, resolver, store, odds, now=now)
+        dossiers = DossierService(ClaudeResearcher(now=now), Fpl(http), resolver, store, now=now)
+        jev = TypeSafeJev(settings.typesafe_api_key, settings.jev_model) if settings.typesafe_api_key else None
+        predictor = Predictor(
+            fdo, ratings, resolver, store, odds, dossiers, jev, settings.claude_model, settings.jev_model, now=now
+        )
     except BaseException:
         close()
         raise
     return Services(
-        store=store, fdo=fdo, resolver=resolver, ratings=ratings, predictor=predictor, close=close, odds=odds
+        store=store,
+        fdo=fdo,
+        resolver=resolver,
+        ratings=ratings,
+        predictor=predictor,
+        close=close,
+        odds=odds,
+        jev=jev,
     )

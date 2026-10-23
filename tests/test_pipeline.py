@@ -3,12 +3,25 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from predict.domain import MARKET_IDS, Competition, Prediction, ProjectedGoals
-from predict.errors import MatchNotFound, PredictionLocked, TeamNotFound
+from predict.errors import JevFailed, MatchNotFound, PredictionLocked, ResearchFailed, SourceError, TeamNotFound
+from predict.model.markets import market_probabilities
+from predict.model.scoreline import scoreline_matrix
+from predict.news.adjust import apply_impacts
 from predict.pipeline import Predictor
 from predict.sources.odds_api import OddsSnapshot
 from predict.store import Store
 from predict.teams import Aliases, TeamResolver
-from tests.helpers import FakeFdo, FakeOdds, StubRater, make_match, make_team
+from tests.helpers import (
+    FakeDossiers,
+    FakeFdo,
+    FakeOdds,
+    StubJev,
+    StubRater,
+    make_dossier,
+    make_factor,
+    make_match,
+    make_team,
+)
 
 NOW = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)
 
@@ -38,13 +51,21 @@ def store():
     s.close()
 
 
-def predictor(matches, store, *, rater=None, now=NOW, odds=None) -> Predictor:
+CLAUDE = "claude-opus-5-5"
+JEV = "jev-1.13.0"
+
+
+def predictor(matches, store, *, rater=None, now=NOW, odds=None, dossiers=None, jev=None) -> Predictor:
     return Predictor(
         FakeFdo(matches),
         rater or StubRater(),
         TeamResolver(TEAMS, Aliases.load()),
         store,
         odds,
+        dossiers or FakeDossiers(make_dossier(created_at=NOW, model=CLAUDE)),
+        jev,
+        CLAUDE,
+        JEV,
         now=lambda: now,
     )
 
@@ -72,7 +93,8 @@ def test_find_match_one_team_returns_earliest(store):
 
 def test_find_match_looks_from_today_for_the_search_window(store):
     fdo = FakeFdo([make_match(ARSENAL, CHELSEA, kickoff=days(3))])
-    p = Predictor(fdo, StubRater(), TeamResolver(TEAMS, Aliases.load()), store, None, now=lambda: NOW)
+    resolver = TeamResolver(TEAMS, Aliases.load())
+    p = Predictor(fdo, StubRater(), resolver, store, None, FakeDossiers(), None, CLAUDE, JEV, now=lambda: NOW)
     p.find_match("arsenal", never)
     assert fdo.upcoming_calls == [(ARSENAL.id, NOW.date(), NOW.date() + timedelta(days=60))]
 
@@ -233,3 +255,132 @@ def test_locked_match_does_not_spend_odds_credits(store):
         predictor([match], store, odds=odds).predict(match)
     assert odds.asked == []
 
+
+# --- Team News --------------------------------------------------------------------------------------------------------
+
+
+def news_dossier(**changes):
+    return make_dossier(created_at=NOW - timedelta(hours=1), model=CLAUDE, **changes)
+
+
+SAKA_OUT = {"home": (make_factor("absence", "Saka", misses="yes", sources=("https://example.com/saka",)),)}
+MAJOR = [0.0, 0.0, 0.0, 1.0]
+SAKA_MAJOR = {"home0_attack": MAJOR, "home0_defence": MAJOR}
+
+
+def test_news_moves_the_projected_goals_and_is_saved(store):
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(3), id=42)
+    dossiers = FakeDossiers(news_dossier(**SAKA_OUT))
+    p = predictor(
+        [match], store, rater=StubRater(ProjectedGoals(home=1.9, away=0.9)), dossiers=dossiers, jev=StubJev(SAKA_MAJOR)
+    )
+    saved = p.predict(match)
+
+    assert saved.news_applied is True
+    assert saved.news_note is None
+    assert [(i.side, i.factor.player) for i in saved.impacts] == [("home", "Saka")]
+    assert saved.projected_base == ProjectedGoals(home=1.9, away=0.9)
+    assert saved.projected == apply_impacts(saved.projected_base, saved.impacts)
+    assert saved.projected.home < saved.projected_base.home
+    assert saved.projected.away > saved.projected_base.away
+    adjusted = market_probabilities(scoreline_matrix(saved.projected.home, saved.projected.away))
+    assert saved.probabilities == adjusted
+    assert (saved.claude_model, saved.jev_model) == (CLAUDE, JEV)
+    assert store.predictions_for_match(42) == [saved]  # impacts and the news fields are saved with it
+
+
+def test_news_with_nothing_to_score_is_still_applied(store):
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(3))
+    jev = StubJev()
+    saved = predictor([match], store, dossiers=FakeDossiers(news_dossier()), jev=jev).predict(match)
+    assert saved.news_applied is True
+    assert saved.impacts == []
+    assert saved.projected == saved.projected_base
+    assert jev.states == []  # no factors, so Jev is not asked
+
+
+def test_the_dossier_is_asked_for_with_fresh_and_the_chosen_model(store):
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(3))
+    dossiers = FakeDossiers(news_dossier())
+    p = predictor([match], store, dossiers=dossiers, jev=StubJev())
+    p.predict(match)
+    p.predict(match, fresh=True, model="claude-sonnet-5-5")
+    assert dossiers.calls == [(match, False, CLAUDE), (match, True, "claude-sonnet-5-5")]
+
+
+def test_jev_is_told_todays_date_not_the_dossiers(store):
+    """A reused dossier can be from before midnight."""
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(3))
+    dossier = make_dossier(created_at=NOW - timedelta(hours=13), model=CLAUDE, **SAKA_OUT)  # 21 Oct 23:00
+    jev = StubJev()
+    predictor([match], store, dossiers=FakeDossiers(dossier), jev=jev).predict(match)
+    assert jev.states[0]["match"]["today"] == "2026-10-22"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ResearchFailed("Claude research failed: no result message came back"),
+        SourceError("fpl", "boom"),
+    ],
+)
+def test_research_failing_falls_back_to_the_stats_model(store, failure):
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(3), id=42)
+    saved = predictor([match], store, dossiers=FakeDossiers(error=failure), jev=StubJev()).predict(match)
+    assert saved.id is not None
+    assert saved.news_applied is False
+    assert saved.news_note == (failure.reason if isinstance(failure, ResearchFailed) else str(failure))
+    assert "--model" not in saved.news_note
+    assert saved.impacts == []
+    assert saved.projected == saved.projected_base
+    for market_id, answers in saved.probabilities.items():
+        assert sum(answers.values()) == pytest.approx(1.0), market_id
+    assert store.predictions_for_match(42) == [saved]
+
+
+def test_a_usage_limit_suggests_a_cheaper_model(store):
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(3))
+    dossiers = FakeDossiers(error=ResearchFailed("Claude research failed: usage limit reached"))
+    saved = predictor([match], store, dossiers=dossiers, jev=StubJev()).predict(match)
+    assert saved.news_applied is False
+    assert "usage limit reached" in saved.news_note
+    assert "rerun with --model claude-sonnet-5-5" in saved.news_note
+    assert set(saved.probabilities) == set(MARKET_IDS)
+
+
+def test_jev_failing_falls_back_to_the_stats_model(store):
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(3), id=42)
+    jev = StubJev(error=JevFailed("Jev request failed: HTTP 500"))
+    saved = predictor([match], store, dossiers=FakeDossiers(news_dossier(**SAKA_OUT)), jev=jev).predict(match)
+    assert saved.news_applied is False
+    assert saved.news_note == "Jev request failed: HTTP 500"
+    assert saved.impacts == []
+    assert saved.projected == saved.projected_base
+    assert (saved.claude_model, saved.jev_model) == (None, None)
+    assert store.predictions_for_match(42) == [saved]
+
+
+def test_without_a_jev_key_news_is_not_applied_and_claude_is_not_run(store):
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(3))
+    dossiers = FakeDossiers(news_dossier(**SAKA_OUT))
+    saved = predictor([match], store, dossiers=dossiers, jev=None).predict(match)
+    assert saved.news_applied is False
+    assert saved.news_note == "no TYPESAFE_API_KEY set"
+    assert dossiers.calls == []
+
+
+def test_locked_match_does_not_research(store):
+    match = make_match(ARSENAL, CHELSEA, kickoff=NOW)
+    dossiers = FakeDossiers(news_dossier())
+    with pytest.raises(PredictionLocked):
+        predictor([match], store, dossiers=dossiers, jev=StubJev()).predict(match)
+    assert dossiers.calls == []
+
+
+def test_share_marks_the_prediction_shared_now(store):
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(3), id=42)
+    p = predictor([match], store)
+    assert p.predict(match).shared_at is None
+    shared = p.predict(match, share=True)
+    assert shared.shared_at == NOW
+    assert store.predictions_for_match(42)[1].shared_at == NOW

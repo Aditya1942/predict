@@ -5,8 +5,20 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from predict.domain import Competition, LeagueBase, Match, MatchRecord, ProjectedGoals, Team, TeamRating
+from predict.domain import (
+    Competition,
+    LeagueBase,
+    Match,
+    MatchDossier,
+    MatchRecord,
+    NewsDossier,
+    NewsFactor,
+    ProjectedGoals,
+    Team,
+    TeamRating,
+)
 from predict.errors import OddsUnavailable
+from predict.news.scoring import JevAnswers
 from predict.ratings import RatedMatch
 from predict.sources.odds_api import OddsSnapshot
 
@@ -103,6 +115,62 @@ class FakeOdds:
             raise OddsUnavailable(self.unavailable)
         assert self.snapshot_value is not None
         return self.snapshot_value
+
+
+def make_factor(
+    kind: str = "absence",
+    player: str | None = "Saka",
+    *,
+    misses: str = "yes",
+    summary: str = "Out for three weeks with a hamstring injury.",
+    sources: tuple[str, ...] = (),
+) -> NewsFactor:
+    return NewsFactor(kind=kind, player=player, summary=summary, misses_match=misses, sources=list(sources))
+
+
+def make_dossier(
+    *, home: tuple[NewsFactor, ...] = (), away: tuple[NewsFactor, ...] = (), created_at: datetime, model: str
+) -> MatchDossier:
+    return MatchDossier(
+        home=NewsDossier(team="Home", factors=list(home)),
+        away=NewsDossier(team="Away", factors=list(away)),
+        created_at=created_at,
+        claude_model=model,
+    )
+
+
+class FakeDossiers:
+    """The DossierService stand-in: hands out `dossier`, or raises `error`, noting how it was asked."""
+
+    def __init__(self, dossier: MatchDossier | None = None, *, error: Exception | None = None) -> None:
+        self.dossier = dossier
+        self.error = error
+        self.calls: list[tuple[Match, bool, str]] = []
+
+    def get(self, match: Match, *, fresh: bool, model: str) -> MatchDossier:
+        self.calls.append((match, fresh, model))
+        if self.error is not None:
+            raise self.error
+        assert self.dossier is not None
+        return self.dossier
+
+
+class StubJev:
+    """Jev stand-in: each question is answered by `scores` (by name) or level 0, "no real change"; or raises `error`."""
+
+    def __init__(self, scores: dict[str, list[float]] | None = None, *, error: Exception | None = None) -> None:
+        self.scores = scores or {}
+        self.error = error
+        self.states: list[dict] = []
+
+    def ask(self, state: dict, nouls: dict[str, str], scores: dict[str, tuple[str, list[str]]]) -> JevAnswers:
+        self.states.append(state)
+        if self.error is not None:
+            raise self.error
+        return JevAnswers(
+            nouls={name: 0.5 for name in nouls},
+            score_probabilities={name: self.scores.get(name, [1.0, 0.0, 0.0, 0.0]) for name in scores},
+        )
 
 
 @contextmanager

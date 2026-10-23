@@ -3,11 +3,18 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from predict.domain import MARKET_IDS, HotTake, Prediction, ProjectedGoals
+from predict.domain import MARKET_IDS, FactorImpact, HotTake, Prediction, ProjectedGoals
 from predict.model.markets import market_probabilities
 from predict.model.scoreline import scoreline_matrix
-from predict.render import answer_label, format_kickoff, full_view, market_label
-from tests.helpers import make_match, make_team, system_zone
+from predict.render import (
+    answer_label,
+    copy_to_clipboard,
+    format_kickoff,
+    full_view,
+    market_label,
+    share_text,
+)
+from tests.helpers import make_factor, make_match, make_team, system_zone
 
 ARSENAL = make_team(1, "Arsenal")
 CHELSEA = make_team(2, "Chelsea")
@@ -200,3 +207,145 @@ def test_full_view_says_when_there_are_no_hot_takes():
 def test_full_view_hides_credits_when_unknown():
     text = full_view(with_bookmaker().model_copy(update={"credits_remaining": None}), IST)
     assert "credits" not in text
+
+
+# --- Team News in the full view -------------------------------------------------------------------------------------
+
+
+def impact(side="home", attack=0.92, concede=1.08, **factor) -> FactorImpact:
+    return FactorImpact(side=side, factor=make_factor(**factor), attack_mult=attack, concede_mult=concede, p_start=None)
+
+
+def test_full_view_lists_the_reasons_per_team():
+    saka = impact(sources=("https://example.com/saka", "https://example.com/other"))
+    palmer = impact("away", 1.04, 0.995, kind="return", player=None, summary="Back from suspension.")
+    text = full_view(prediction(impacts=[saka, palmer], news_applied=True), IST)
+    lines = [line.strip() for line in text.splitlines()]
+    assert "Team News" in lines
+    assert "Saka: Out for three weeks with a hamstring injury. → Arsenal goals -8% → Chelsea goals +8%" in lines
+    assert "https://example.com/saka" in lines
+    assert "https://example.com/other" not in text
+    # no player: the kind names it; a concede change under 1 point is left out; no source: no URL line
+    assert "return: Back from suspension. → Chelsea goals +4%" in lines
+
+
+def test_full_view_leaves_out_the_opponent_when_it_barely_moves():
+    text = full_view(prediction(impacts=[impact(concede=1.009)], news_applied=True), IST)
+    assert "→ Arsenal goals -8%" in text
+    assert "→ Chelsea goals" not in text
+    text = full_view(prediction(impacts=[impact(concede=0.99)], news_applied=True), IST)
+    assert "→ Chelsea goals -1%" in text
+
+
+def test_full_view_shows_only_the_top_three_reasons_per_team():
+    attacks = (("A", 0.99), ("B", 0.9), ("C", 0.95), ("D", 0.8))
+    impacts = [impact(player=name, attack=a, concede=1.0) for name, a in attacks]
+    text = full_view(prediction(impacts=impacts, news_applied=True), IST)
+    assert [name for name in "ABCD" if f"{name}: " in text] == ["B", "C", "D"]
+
+
+def test_full_view_without_news_factors_says_so():
+    text = full_view(prediction(news_applied=True), IST)
+    assert "Team News" in text
+    assert "nothing that changes the numbers" in text
+
+
+def test_footer_says_news_was_applied_with_the_models():
+    text = full_view(prediction(news_applied=True, claude_model="claude-opus-5-5", jev_model="jev-1.13.0"), IST)
+    assert "news applied ✓" in text
+    assert "claude-opus-5-5" in text
+    assert "jev-1.13.0" in text
+    assert "not applied" not in text
+
+
+def test_footer_says_why_news_was_not_applied():
+    text = full_view(prediction(news_note="no TYPESAFE_API_KEY set"), IST)
+    assert "⚠️ news not applied (no TYPESAFE_API_KEY set)" in text
+    assert "Team News" not in text
+    assert "news applied ✓" not in text
+
+
+# --- the share view -------------------------------------------------------------------------------------------------
+
+SHARE_KICKOFF = datetime(2025, 10, 25, 16, 30, tzinfo=UTC)  # a Saturday
+KOLKATA = ZoneInfo("Asia/Kolkata")
+
+
+def share_prediction(**changes) -> Prediction:
+    probabilities = {
+        "result": {"home": 0.54, "draw": 0.24, "away": 0.22},
+        "btts": {"yes": 0.52, "no": 0.48},
+        "total:2.5": {"over": 0.51, "under": 0.49},
+        "team:home:1.5": {"over": 0.58, "under": 0.42},
+        "team:away:1.5": {"over": 0.34, "under": 0.66},
+    }
+    changes = {
+        "match": make_match(ARSENAL, CHELSEA, kickoff=SHARE_KICKOFF),
+        "probabilities": probabilities,
+        "hot_takes": [HotTake(market="result", answer="home", model_p=0.54, book_p=0.44)],
+        **changes,
+    }
+    return prediction(**changes)
+
+
+def test_share_text_exact():
+    assert share_text(share_prediction(), (21, 32), KOLKATA) == "\n".join(
+        [
+            "⚽ Arsenal v Chelsea · Premier League · Sat 25 Oct, 22:00",
+            "🏆 Arsenal 54% · Draw 24% · Chelsea 22%",
+            "🎯 Both teams to score: Yes 52%",
+            "🥅 Total goals: Over 2.5 · 51%",
+            "👟 Arsenal over 1.5 goals 58% · Chelsea under 1.5 goals 66%",
+            "🔥 Hot Take: Arsenal to win (54% vs bookies 44%)",
+            "📈 Record: 21/32 results called",
+        ]
+    )
+
+
+def test_share_text_without_hot_takes_or_a_record_is_five_lines():
+    text = share_text(share_prediction(hot_takes=[]), None, KOLKATA)
+    assert len(text.splitlines()) == 5
+    assert "🔥" not in text
+    assert "📈" not in text
+
+
+def test_share_text_leaves_out_a_record_with_nothing_scored():
+    assert "📈" not in share_text(share_prediction(), (0, 0), KOLKATA)
+
+
+def test_share_text_shows_the_pick_of_each_market():
+    probabilities = {
+        **share_prediction().probabilities,
+        "btts": {"yes": 0.45, "no": 0.55},
+        "total:2.5": {"over": 0.40, "under": 0.60},
+    }
+    lines = share_text(share_prediction(probabilities=probabilities), None, KOLKATA).splitlines()
+    assert lines[2] == "🎯 Both teams to score: No 55%"
+    assert lines[3] == "🥅 Total goals: Under 2.5 · 60%"
+
+
+def test_share_text_has_at_most_three_hot_takes():
+    takes = [HotTake(market="result", answer="home", model_p=0.5 + i / 100, book_p=0.3) for i in range(4)]
+    lines = share_text(share_prediction(hot_takes=takes), None, KOLKATA).splitlines()
+    assert sum(line.startswith("🔥") for line in lines) == 3
+
+
+def test_share_text_without_a_zone_uses_the_system_zone():
+    with system_zone("Asia/Kolkata"):
+        assert share_text(share_prediction(), None, None).splitlines()[0].endswith("Sat 25 Oct, 22:00")
+
+
+def test_copy_to_clipboard_pipes_the_text_to_pbcopy(monkeypatch, tmp_path):
+    out = tmp_path / "clip"
+    script = tmp_path / "bin" / "pbcopy"
+    script.parent.mkdir()
+    script.write_text(f"#!/bin/sh\ncat > {out}\n")
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{script.parent}:/usr/bin:/bin")  # ahead of any real pbcopy
+    assert copy_to_clipboard("⚽ Arsenal v Chelsea") is True
+    assert out.read_text() == "⚽ Arsenal v Chelsea"
+
+
+def test_copy_to_clipboard_is_false_without_pbcopy(monkeypatch, tmp_path):
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert copy_to_clipboard("text") is False

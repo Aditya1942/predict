@@ -1,6 +1,7 @@
 """Command line: `predict <query...> [--share] [--fresh] [--model ID]`."""
 
 import argparse
+import os
 import sys
 from datetime import UTC, datetime
 
@@ -9,7 +10,8 @@ from pydantic import ValidationError
 from predict.config import Settings
 from predict.domain import Team
 from predict.errors import MatchNotFound, PredictionLocked, SourceError, TeamNotFound
-from predict.render import full_view
+from predict.news.research import api_key_warning
+from predict.render import copy_to_clipboard, full_view, share_text
 from predict.wiring import Services, build
 
 
@@ -72,7 +74,9 @@ def main(argv: list[str] | None = None, services: Services | None = None) -> int
         options = _parser().parse_intermixed_args(args)
     except SystemExit as done:  # argparse: 0 after --help, 2 for bad usage
         return done.code if isinstance(done.code, int) else 1
-    # --share, --fresh and --model are accepted now and acted on once news and sharing are wired in.
+    warning = api_key_warning(os.environ)
+    if warning:
+        print(warning, file=sys.stderr)
 
     owned = services is None
     try:
@@ -84,8 +88,16 @@ def main(argv: list[str] | None = None, services: Services | None = None) -> int
                 return 1
             services = build(settings, _utc_now)
         match = services.predictor.find_match(" ".join(options.query), choose_team)
-        prediction = services.predictor.predict(match)
+        prediction = services.predictor.predict(match, fresh=options.fresh, model=options.model, share=options.share)
         print(full_view(prediction, None))  # None: the system zone, correct for each kickoff date
+        if options.share:
+            text = share_text(prediction, None, None)
+            print()
+            print(text)
+            if copy_to_clipboard(text):
+                print("Copied to clipboard.", file=sys.stderr)
+            else:
+                print("Could not copy to the clipboard (pbcopy not available).", file=sys.stderr)
         return 0
     except Declined:
         print("No team chosen.", file=sys.stderr)

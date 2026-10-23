@@ -225,7 +225,8 @@ class Prediction(_Frozen):
     """A saved Prediction. `projected_base` is the stats-only model, `projected` what the Markets use.
 
     `bookmaker` holds Bookmaker Probabilities for the Markets bookmakers list; when there are none,
-    `odds_note` says why.
+    `odds_note` says why. When Team News is applied, `impacts` are the scored News Factors behind `projected`
+    and `claude_model` / `jev_model` made them; when it is not, `news_note` says why.
     """
 
     id: int | None = None
@@ -239,6 +240,11 @@ class Prediction(_Frozen):
     hot_takes: list[HotTake] = Field(default_factory=list)
     odds_note: str | None = None
     credits_remaining: int | None = None
+    impacts: list[FactorImpact] = Field(default_factory=list)
+    news_applied: bool = False
+    news_note: str | None = None
+    claude_model: str | None = None
+    jev_model: str | None = None
 
 
 def season_of(dt: datetime) -> int:
