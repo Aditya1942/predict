@@ -28,6 +28,13 @@ TEAM_LINES = (0.5, 1.5, 2.5)
 
 # News
 NEWS_CAP = (0.75, 1.25)
+# Multipliers on a team's goals (attack) and on its opponent's goals (concede), by Jev's 4 impact levels:
+# no real change, small, clear, major. Weakening news is an absence, doubt, rotation or cold streak;
+# boosting news is a return or hot streak.
+ATTACK_WEAKEN = (1.00, 0.97, 0.92, 0.85)
+ATTACK_BOOST = (1.00, 1.03, 1.06, 1.10)
+CONCEDE_WEAKEN = (1.00, 1.03, 1.08, 1.15)
+CONCEDE_BOOST = (1.00, 0.97, 0.94, 0.90)
 MAX_FACTORS_PER_TEAM = 6
 MAX_SEARCHES_PER_TEAM = 5
 DOSSIER_TTL = timedelta(hours=6)

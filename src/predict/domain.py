@@ -208,6 +208,19 @@ class MatchDossier(_Frozen):
     claude_model: str
 
 
+class FactorImpact(_Frozen):
+    """What Jev made of one News Factor.
+
+    `attack_mult` applies to this team's goals, `concede_mult` to the opponent's.
+    """
+
+    side: Side
+    factor: NewsFactor
+    attack_mult: float
+    concede_mult: float
+    p_start: float | None
+
+
 class Prediction(_Frozen):
     """A saved Prediction. `projected_base` is the stats-only model, `projected` what the Markets use.
 

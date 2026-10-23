@@ -60,3 +60,11 @@ class ResearchFailed(Exception):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class JevFailed(Exception):
+    """Jev could not score the News Factors; `reason` is fit to show the user."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
