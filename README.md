@@ -46,5 +46,6 @@ See [docs/backtest-2025.md](docs/backtest-2025.md) for what it checks and its st
 
 ## More
 
+- [How to run and use it](docs/HOW-TO-RUN.md): full step-by-step guide
 - [GLOSSARY.md](GLOSSARY.md): the terms used here (Match, Market, Hot Take, News Factor, ...)
 - [Design spec](docs/superpowers/specs/2026-10-22-predict-design.md)
