@@ -6,7 +6,9 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 
 from predict.domain import Competition, LeagueBase, Match, MatchRecord, ProjectedGoals, Team, TeamRating
+from predict.errors import OddsUnavailable
 from predict.ratings import RatedMatch
+from predict.sources.odds_api import OddsSnapshot
 
 _EPOCH = datetime(2026, 8, 1, tzinfo=UTC)
 
@@ -85,6 +87,22 @@ class StubRater:
             base=LeagueBase(home_goals=1.5, away_goals=1.2),
             projected=self.projected,
         )
+
+
+class FakeOdds:
+    """The Odds API stand-in: returns `snapshot`, or raises `OddsUnavailable(unavailable)` when that is set."""
+
+    def __init__(self, snapshot: OddsSnapshot | None = None, *, unavailable: str | None = None) -> None:
+        self.snapshot_value = snapshot
+        self.unavailable = unavailable
+        self.asked: list[Match] = []
+
+    def snapshot(self, match: Match) -> OddsSnapshot:
+        self.asked.append(match)
+        if self.unavailable is not None:
+            raise OddsUnavailable(self.unavailable)
+        assert self.snapshot_value is not None
+        return self.snapshot_value
 
 
 @contextmanager

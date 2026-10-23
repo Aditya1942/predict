@@ -5,9 +5,10 @@ import pytest
 from predict.domain import MARKET_IDS, Competition, Prediction, ProjectedGoals
 from predict.errors import MatchNotFound, PredictionLocked, TeamNotFound
 from predict.pipeline import Predictor
+from predict.sources.odds_api import OddsSnapshot
 from predict.store import Store
 from predict.teams import Aliases, TeamResolver
-from tests.helpers import FakeFdo, StubRater, make_match, make_team
+from tests.helpers import FakeFdo, FakeOdds, StubRater, make_match, make_team
 
 NOW = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)
 
@@ -37,12 +38,13 @@ def store():
     s.close()
 
 
-def predictor(matches, store, *, rater=None, now=NOW) -> Predictor:
+def predictor(matches, store, *, rater=None, now=NOW, odds=None) -> Predictor:
     return Predictor(
         FakeFdo(matches),
         rater or StubRater(),
         TeamResolver(TEAMS, Aliases.load()),
         store,
+        odds,
         now=lambda: now,
     )
 
@@ -70,7 +72,7 @@ def test_find_match_one_team_returns_earliest(store):
 
 def test_find_match_looks_from_today_for_the_search_window(store):
     fdo = FakeFdo([make_match(ARSENAL, CHELSEA, kickoff=days(3))])
-    p = Predictor(fdo, StubRater(), TeamResolver(TEAMS, Aliases.load()), store, now=lambda: NOW)
+    p = Predictor(fdo, StubRater(), TeamResolver(TEAMS, Aliases.load()), store, None, now=lambda: NOW)
     p.find_match("arsenal", never)
     assert fdo.upcoming_calls == [(ARSENAL.id, NOW.date(), NOW.date() + timedelta(days=60))]
 
@@ -175,3 +177,59 @@ def test_each_run_saves_another_prediction(store):
 def test_prediction_is_a_domain_type(store):
     match = make_match(ARSENAL, CHELSEA, kickoff=days(3))
     assert isinstance(predictor([match], store).predict(match), Prediction)
+
+
+BOOK = {
+    "result": {"home": 0.48, "draw": 0.28, "away": 0.24},
+    "btts": {"yes": 0.55, "no": 0.45},
+}
+
+
+def book_snapshot(credits: int | None = 480) -> OddsSnapshot:
+    return OddsSnapshot(probabilities=BOOK, credits_remaining=credits, fetched_at=NOW)
+
+
+def test_predict_adds_bookmaker_probabilities_hot_takes_and_credits(store):
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(3), id=42)
+    odds = FakeOdds(book_snapshot())
+    saved = predictor([match], store, rater=StubRater(ProjectedGoals(home=1.9, away=0.9)), odds=odds).predict(match)
+
+    assert odds.asked == [match]
+    assert saved.bookmaker == BOOK
+    assert saved.credits_remaining == 480
+    assert saved.odds_note is None
+    assert [(t.market, t.answer) for t in saved.hot_takes] == [("result", "home")]
+    take = saved.hot_takes[0]
+    assert take.model_p == saved.probabilities["result"]["home"]
+    assert take.book_p == 0.48
+    assert store.predictions_for_match(42) == [saved]  # the extras are saved with the Prediction
+
+
+def test_predict_without_an_odds_source_says_no_key(store):
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(3))
+    saved = predictor([match], store).predict(match)
+    assert saved.bookmaker is None
+    assert saved.hot_takes == []
+    assert saved.odds_note == "no ODDS_API_KEY set"
+    assert saved.credits_remaining is None
+
+
+def test_odds_failing_still_saves_a_prediction_with_the_reason(store):
+    match = make_match(ARSENAL, CHELSEA, kickoff=days(3), id=42)
+    odds = FakeOdds(unavailable="odds quota used up or key invalid (HTTP 429)")
+    saved = predictor([match], store, odds=odds).predict(match)
+    assert saved.id is not None
+    assert saved.bookmaker is None
+    assert saved.hot_takes == []
+    assert saved.odds_note == "odds quota used up or key invalid (HTTP 429)"
+    assert set(saved.probabilities) == set(MARKET_IDS)
+    assert store.predictions_for_match(42) == [saved]
+
+
+def test_locked_match_does_not_spend_odds_credits(store):
+    match = make_match(ARSENAL, CHELSEA, kickoff=NOW)
+    odds = FakeOdds(book_snapshot())
+    with pytest.raises(PredictionLocked):
+        predictor([match], store, odds=odds).predict(match)
+    assert odds.asked == []
+

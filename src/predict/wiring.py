@@ -13,6 +13,7 @@ from predict.pipeline import Predictor
 from predict.ratings import RatingsService
 from predict.sources.clubelo import ClubElo
 from predict.sources.football_data_org import FootballDataOrg
+from predict.sources.odds_api import OddsApi
 from predict.sources.understat import Understat
 from predict.store import Store
 from predict.teams import Aliases, TeamResolver
@@ -32,6 +33,7 @@ class Services:
     ratings: RatingsService
     predictor: Predictor
     close: Callable[[], None] = _nothing
+    odds: OddsApi | None = None
 
 
 def build(settings: Settings, now: Callable[[], datetime]) -> Services:
@@ -49,8 +51,11 @@ def build(settings: Settings, now: Callable[[], datetime]) -> Services:
         teams = [team for comp in Competition for team in fdo.teams(comp)]
         resolver = TeamResolver(teams, Aliases.load())
         ratings = RatingsService(fdo, Understat(http), ClubElo(http, store, now=now), resolver, now=now)
-        predictor = Predictor(fdo, ratings, resolver, store, now=now)
+        odds = OddsApi(client, store, settings.odds_api_key, resolver, now=now) if settings.odds_api_key else None
+        predictor = Predictor(fdo, ratings, resolver, store, odds, now=now)
     except BaseException:
         close()
         raise
-    return Services(store=store, fdo=fdo, resolver=resolver, ratings=ratings, predictor=predictor, close=close)
+    return Services(
+        store=store, fdo=fdo, resolver=resolver, ratings=ratings, predictor=predictor, close=close, odds=odds
+    )

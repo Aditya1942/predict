@@ -8,6 +8,7 @@ import pytest
 
 from predict.config import Settings
 from predict.errors import SourceError
+from predict.sources.odds_api import OddsApi
 from predict.wiring import build
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -36,6 +37,26 @@ def test_build_wires_the_real_services(monkeypatch, tmp_path):
         assert services.predictor is not None
     finally:
         services.close()
+
+
+def test_build_wires_odds_only_when_a_key_is_set(monkeypatch, tmp_path):
+    teams = json.loads((FIXTURES / "fdo_teams_pl.json").read_text())
+    real_client = httpx.Client
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=teams))
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: real_client(transport=transport, **kwargs))
+    ticks = itertools.count()
+    now = lambda: START + timedelta(seconds=10 * next(ticks))  # noqa: E731  later each call, so nothing is throttled
+
+    without = build(Settings(_env_file=None, football_data_org_token="t", predict_home=tmp_path / "a"), now)
+    with_key = build(
+        Settings(_env_file=None, football_data_org_token="t", odds_api_key="k", predict_home=tmp_path / "b"), now
+    )
+    try:
+        assert without.odds is None
+        assert isinstance(with_key.odds, OddsApi)
+    finally:
+        without.close()
+        with_key.close()
 
 
 def test_build_propagates_a_source_failure(monkeypatch, tmp_path):

@@ -41,7 +41,7 @@ def services_for():
             fdo=fdo,
             resolver=resolver,
             ratings=ratings,
-            predictor=Predictor(fdo, ratings, resolver, store, now=clock or (lambda: now)),
+            predictor=Predictor(fdo, ratings, resolver, store, None, now=clock or (lambda: now)),
         )
 
     yield make

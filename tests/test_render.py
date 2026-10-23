@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from predict.domain import MARKET_IDS, Prediction, ProjectedGoals
+from predict.domain import MARKET_IDS, HotTake, Prediction, ProjectedGoals
 from predict.model.markets import market_probabilities
 from predict.model.scoreline import scoreline_matrix
 from predict.render import answer_label, format_kickoff, full_view, market_label
@@ -145,3 +145,58 @@ def test_full_view_marks_a_neutral_venue():
 
 def test_full_view_is_plain_text():
     assert "\x1b" not in full_view(prediction(), IST)
+
+
+BOOK = {
+    "result": {"home": 0.40, "draw": 0.26, "away": 0.34},
+    "btts": {"yes": 0.51, "no": 0.49},
+}
+
+
+def with_bookmaker(**changes) -> Prediction:
+    return prediction(bookmaker=BOOK, hot_takes=[], credits_remaining=480, **changes)
+
+
+def test_full_view_without_bookmaker_has_no_bookies_column_and_says_why():
+    text = full_view(prediction(odds_note="no ODDS_API_KEY set"), IST)
+    assert "Bookies" not in text
+    assert "Hot Takes" not in text
+    assert "Bookmaker odds unavailable: no ODDS_API_KEY set" in text
+
+
+def test_full_view_shows_bookmaker_probabilities_beside_ours():
+    text = full_view(with_bookmaker(), IST)
+    lines = text.splitlines()
+    assert "Bookies" in lines[next(i for i, line in enumerate(lines) if line.lstrip().startswith("Market"))]
+    result = next(line for line in lines if line.lstrip().startswith("Match Result"))
+    assert "40%" in result and "26%" in result and "34%" in result
+    btts = next(line for line in lines if line.lstrip().startswith("Both teams to score"))
+    assert "51%" in btts and "49%" in btts
+
+
+def test_markets_the_bookmakers_do_not_list_show_a_dash():
+    text = full_view(with_bookmaker(), IST)
+    total = next(line for line in text.splitlines() if line.lstrip().startswith("Total goals 2.5"))
+    assert total.rstrip().endswith("—")
+
+
+def test_full_view_lists_hot_takes_and_credits():
+    p = with_bookmaker()
+    take = HotTake(market="result", answer="home", model_p=0.54, book_p=0.40)
+    away = HotTake(market="btts", answer="no", model_p=0.36, book_p=0.49)
+    text = full_view(p.model_copy(update={"hot_takes": [take, away]}), IST)
+    lines = text.splitlines()
+    start = lines.index("Hot Takes")
+    assert lines[start + 1].strip() == "Arsenal to win: us 54% vs bookies 40% (+14 pts)"
+    assert lines[start + 2].strip() == "BTTS: No: us 36% vs bookies 49% (-13 pts)"
+    assert "Odds credits remaining: 480" in text
+
+
+def test_full_view_says_when_there_are_no_hot_takes():
+    text = full_view(with_bookmaker(), IST)
+    assert "Hot Takes: none" in text
+
+
+def test_full_view_hides_credits_when_unknown():
+    text = full_view(with_bookmaker().model_copy(update={"credits_remaining": None}), IST)
+    assert "credits" not in text

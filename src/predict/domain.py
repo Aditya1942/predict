@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 _DISPLAY = {
     "PL": "Premier League",
@@ -151,8 +151,26 @@ class LeagueBase(_Frozen):
     away_goals: float
 
 
+class HotTake(_Frozen):
+    """An answer where the model's probability and the Bookmaker Probability differ by a lot."""
+
+    market: str
+    answer: str
+    model_p: float
+    book_p: float
+
+    @property
+    def diff(self) -> float:
+        """Positive when the model rates the answer higher than the bookmakers do."""
+        return self.model_p - self.book_p
+
+
 class Prediction(_Frozen):
-    """A saved Prediction. `projected_base` is the stats-only model, `projected` what the Markets use."""
+    """A saved Prediction. `projected_base` is the stats-only model, `projected` what the Markets use.
+
+    `bookmaker` holds Bookmaker Probabilities for the Markets bookmakers list; when there are none,
+    `odds_note` says why.
+    """
 
     id: int | None = None
     match: Match
@@ -161,6 +179,10 @@ class Prediction(_Frozen):
     projected: ProjectedGoals
     probabilities: Probabilities
     shared_at: AwareDatetime | None = None
+    bookmaker: Probabilities | None = None
+    hot_takes: list[HotTake] = Field(default_factory=list)
+    odds_note: str | None = None
+    credits_remaining: int | None = None
 
 
 def season_of(dt: datetime) -> int:

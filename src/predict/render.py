@@ -8,7 +8,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from predict.domain import Match, Prediction
+from predict.domain import HotTake, Match, Prediction
+from predict.params import HOT_TAKE_THRESHOLD
 
 _WIDTH = 100
 _SIDES = ("home", "away")
@@ -59,6 +60,28 @@ def answer_label(market_id: str, answer: str, match: Match) -> str:
     return labels[answer]
 
 
+def _bookies_cell(listed: dict[str, float] | None, answers: list[str]) -> str:
+    """The bookmakers' percentages in the same answer order as ours; a dash where they list nothing."""
+    if listed is None:
+        return "—"
+    return " · ".join(f"{listed[answer] * 100:.0f}%" if answer in listed else "—" for answer in answers)
+
+
+def _print_hot_takes(console: Console, takes: list[HotTake], match: Match) -> None:
+    if not takes:
+        points = round(HOT_TAKE_THRESHOLD * 100)
+        console.print(Text(f"Hot Takes: none (nothing is {points}+ points from the bookmakers)"))
+        return
+    console.print(Text("Hot Takes", style="bold"))
+    for take in takes:
+        console.print(
+            Text(
+                f"  {answer_label(take.market, take.answer, match)}: us {take.model_p * 100:.0f}%"
+                f" vs bookies {take.book_p * 100:.0f}% ({round(take.diff * 100):+d} pts)"
+            )
+        )
+
+
 def full_view(p: Prediction, tz: tzinfo | None) -> str:
     match = p.match
     console = Console(file=io.StringIO(), record=True, width=_WIDTH, force_terminal=False, color_system=None)
@@ -84,9 +107,20 @@ def full_view(p: Prediction, tz: tzinfo | None) -> str:
     table = Table(box=box.SIMPLE_HEAD, show_edge=False, pad_edge=False)
     table.add_column("Market", no_wrap=True)
     table.add_column("Probabilities")
+    if p.bookmaker is not None:
+        table.add_column("Bookies")
     for market_id, answers in p.probabilities.items():
         cells = (f"{answer_label(market_id, answer, match)} {prob * 100:.0f}%" for answer, prob in answers.items())
-        table.add_row(Text(market_label(market_id, match)), Text("  ·  ".join(cells)))
+        row = [Text(market_label(market_id, match)), Text("  ·  ".join(cells))]
+        if p.bookmaker is not None:
+            row.append(Text(_bookies_cell(p.bookmaker.get(market_id), list(answers))))
+        table.add_row(*row)
     console.print(table)
+    if p.bookmaker is not None:
+        _print_hot_takes(console, p.hot_takes, match)
     console.print(Text("Stats model only; no news applied.", style="dim"))
+    if p.bookmaker is None and p.odds_note:
+        console.print(Text(f"Bookmaker odds unavailable: {p.odds_note}", style="dim"))
+    if p.bookmaker is not None and p.credits_remaining is not None:
+        console.print(Text(f"Odds credits remaining: {p.credits_remaining}", style="dim"))
     return "\n".join(line.rstrip() for line in console.export_text().splitlines())
