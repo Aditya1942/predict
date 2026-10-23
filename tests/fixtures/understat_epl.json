@@ -1,0 +1,85 @@
+{
+  "teams": {},
+  "players": [],
+  "dates": [
+    {
+      "id": "31180",
+      "isResult": true,
+      "h": {
+        "id": "83",
+        "title": "Arsenal",
+        "short_title": "ARS"
+      },
+      "a": {
+        "id": "294",
+        "title": "Coventry",
+        "short_title": "COV"
+      },
+      "goals": {
+        "h": "3",
+        "a": "0"
+      },
+      "xG": {
+        "h": "1.85424",
+        "a": "0.558336"
+      },
+      "datetime": "2026-08-21 19:00:00",
+      "forecast": {
+        "w": "0.7194",
+        "d": "0.2156",
+        "l": "0.065"
+      }
+    },
+    {
+      "id": "31181",
+      "isResult": true,
+      "h": {
+        "id": "91",
+        "title": "Hull",
+        "short_title": "HUL"
+      },
+      "a": {
+        "id": "89",
+        "title": "Manchester United",
+        "short_title": "MUN"
+      },
+      "goals": {
+        "h": "2",
+        "a": "0"
+      },
+      "xG": {
+        "h": "1.49627",
+        "a": "1.77874"
+      },
+      "datetime": "2026-08-22 11:30:00",
+      "forecast": {
+        "w": "0.2918",
+        "d": "0.2884",
+        "l": "0.4198"
+      }
+    },
+    {
+      "id": "31250",
+      "isResult": false,
+      "h": {
+        "id": "285",
+        "title": "Ipswich",
+        "short_title": "IPS"
+      },
+      "a": {
+        "id": "249",
+        "title": "Nottingham Forest",
+        "short_title": "NOT"
+      },
+      "goals": {
+        "h": null,
+        "a": null
+      },
+      "xG": {
+        "h": null,
+        "a": null
+      },
+      "datetime": "2026-10-23 19:00:00"
+    }
+  ]
+}
